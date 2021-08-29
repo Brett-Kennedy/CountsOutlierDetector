@@ -5,11 +5,13 @@ CountsOutlierDetector is based on the intuition that all outliers are essentiall
 
 The detector may examine up to a specified number of dimensions, but testing indicated it's rarely necessary to go beyond 3 or 4 dimensions. This ensures the outlier detection process is quite tractable, but also ensures that the outliers identified are interpretable. 
 
-Most detectors, in some sense, attempt to find these, though use algorithms optimized for a variety of concerns, such as speed and scalability. Doing so, they more or less approximate the process here, not necessarily examining all combinations. 
+Most detectors, in some sense, attempt to find these, though use algorithms optimized for a variety of concerns, such as speed and scalability. Doing so, they more or less approximate the process here, not necessarily examining all combinations; stocastic processes are often used, which lead to faster execution times and probably approximately correct solutions, but can miss some outliers. Many do, however, check for higher-dimensional outliers, which this process may miss. We argue that is acceptable most of the time as it's an acceptable trade-off for more complete (and as such, less biased) examination of lower-dimensional spaces, more comprehensible explanations, and the sense that outliers in lower dimensions are most often more relevant than in higher dimensions. For example, a row that is an unusual combination of, say, 10 values (but not of 1, 2, ... 9 values) is likely to be less relevant than a row with a single unusual value, or single pair or triple of values. 
 
-not stocastic. doesn't miss anything, but doesn't go up to hgh dimensions.
+This detector, then, has the advantages of: 1) being able to provide as clear as possible explanations (explanations are based on a single column if possible, two columns if necessary, 3 if necessary, and so on); and 2) being able to provide full statistics about each space to provide full context of the outlierness of each row. 
 
 # Example
+
+
 
 # Example Files
 
