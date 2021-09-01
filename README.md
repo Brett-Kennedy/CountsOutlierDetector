@@ -11,7 +11,7 @@ This detector, then, has the advantages of: 1) being able to provide as clear as
 
 # Example
 
-'''python
+```python
 import pandas as pd
 from sklearn.datasets import load_iris
 
@@ -19,6 +19,7 @@ iris = load_iris()
 X, y = iris.data, iris.target
 det = CountsOutlierDetector()
 flagged_rows_df, row_explanations, output_msg, run_summary_df = det.predict(X)
+```
 
 The 4 returned pandas dataframes and strings provide information about what rows where flagged and why, as well as summary statistics about the dataset's outliers as a whole. 
 
