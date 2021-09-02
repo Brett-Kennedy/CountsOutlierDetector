@@ -22,6 +22,7 @@ np.random.seed(0)
 pd.options.display.max_columns = 1000
 pd.options.display.max_rows = 1000
 pd.options.display.width = 10000
+pd.set_option("max_colwidth", None)
 
 DIVISOR = 0.25  # todo: loop through different values of this to see how it affects the results.
 
