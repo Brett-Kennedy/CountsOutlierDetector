@@ -12,9 +12,11 @@ Most detectors, in some sense, attempt to find these same patterns, though use a
 
 This detector, then, has the advantages of: 
 
-1) being able to provide as clear as possible explanations. Explanations are based on a single column if possible, two columns if necessary, 3 if necessary, and so on. That is, to explain why a row is scored as it is, an examplanation may be given using only as many columns as necessary to explain its score.  
+1) it is able to provide as clear as possible explanations. Explanations are based on a single column if possible, two columns if necessary, 3 if necessary, and so on. That is, to explain why a row is scored as it is, an examplanation may be given using only as many columns as necessary to explain its score.  
 
-2) being able to provide full statistics about each space to provide full context of the outlierness of each row. 
+2) it is able to provide full statistics about each space, which allows it to provide full context of the outlierness of each row. 
+
+This project in an attempt to demonstrate, and provide a working example, that outlier detection can be completely transparent, and though optimized outlier detectors are also very useful, there is a clear utility in interpretable outlier detection. 
 
 # Example
 
@@ -40,7 +42,7 @@ The 4 returned pandas dataframes and strings provide information about what rows
 
 ### Counts by Dimension 
 ![Count by Dimension](https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/Results/counts_by_dim_bar.png)
-This is based on testing 100 random datasets for outliers, up to 5d outliers. This indicates the % of rows flagged as each type of outlier. For most datasets, the 3d tests tend to flag the most rows, with a sharp drop off after that. In this case almost none of the 100 datasets flagged any 5d outliers, though the detector was set to avoid excessive calculations, so some datasets were skipped. Note: many rows were flagged as 1d/2d/3d/4d or 5d outliers multiple times, and so, to a large extent, these bars count the same rows.
+This is based on testing 100 random datasets for outliers, up to 6d outliers. This indicates the % of rows flagged as each type of outlier. For most datasets, the 3d tests tend to flag the most rows, with a sharp drop off after that. In this case almost none of the 100 datasets flagged any 6d outliers, though the detector was set to avoid excessive calculations, so datasets skipped the tests for higher dimensions (see plot below for the number of datasets tested up to each dimensionality). Note: many rows were flagged as 1d/2d/3d/4d or 5d outliers multiple times, and so, to some extent, these bars count the same rows.
 
 ### Cumulative Counts by Dimension
 ![Counts up to Dimension](https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/Results/counts_up_to_dim_bar.png)
