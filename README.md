@@ -59,6 +59,13 @@ The 4 returned pandas dataframes and strings provide information about what rows
 
 # Statistics 
 
+### Percents of Datasets Checked at Each Dimension
+We ran CountsOutlierDetector on 100 random datasets collected from openml.org, allowing it to run on up to six dimensions, but limiting the estimated number of value combinations (given the number of columns considered and average cardinality of each column) to 100 million. This excluded most datasets from considering 5d and 6d outliers, and a small number of datasets from examining even 3d outliers.
+
+![Percent Datasets Checked at Each Dimension](https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/Results/percent_datasets_checked_by_dim_bar.png)
+
+13 out of the 100 did, given these settings, examine datasets for up to 6d outliers. 
+
 ### Counts by Dimension 
 ![Count by Dimension](https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/Results/counts_by_dim_bar.png)
 This is based on testing 100 random datasets for outliers, up to 6d outliers. This indicates the % of rows flagged as each type of outlier. For most datasets, the 3d tests tend to flag the most rows, with a sharp drop off after that. In this case almost none of the 100 datasets flagged any 6d outliers, though the detector was set to avoid excessive calculations, so datasets skipped the tests for higher dimensions (see plot below for the number of datasets tested up to each dimensionality). Note: many rows were flagged as 1d/2d/3d/4d or 5d outliers multiple times, and so, to some extent, these bars count the same rows.
