@@ -62,12 +62,12 @@ The 4 returned pandas dataframes and strings provide information about what rows
 ### Percents of Datasets Checked at Each Dimension
 We ran CountsOutlierDetector on 100 random datasets collected from openml.org, allowing it to run on up to six dimensions, but limiting the estimated number of value combinations (given the number of columns considered and average cardinality of each column) to 100 million. This excluded most datasets from considering 5d and 6d outliers, and a small number of datasets from examining even 3d outliers.
 
-![Percent Datasets Checked at Each Dimension](https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/Results/percent_datasets_checked_by_dim_bar.png)
+<img src="https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/Results/percent_datasets_checked_by_dim_bar.png" alt="drawing" width="650"/>
 
 13 out of the 100 did, given these settings, examine datasets for up to 6d outliers. 
 
 ### Counts by Dimension 
-![Count by Dimension](https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/Results/counts_by_dim_bar.png)
+<img src="https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/Results/counts_by_dim_bar.png" alt="drawing" width="650"/>
 
 This is based on testing 100 random datasets for outliers, up to 6d outliers. This indicates the % of rows flagged as each type of outlier. For most datasets, the 3d tests tend to flag the most rows, with a sharp drop off after that. In this case almost none of the 100 datasets flagged any 6d outliers, though the detector was set to avoid excessive calculations, so datasets skipped the tests for higher dimensions (see plot below for the number of datasets tested up to each dimensionality). Note: many rows were flagged as 1d/2d/3d/4d or 5d outliers multiple times, and so, to some extent, these bars count the same rows.
 
@@ -83,7 +83,7 @@ This is based on testing 100 random datasets for outliers, up to 6d outliers. Th
 Even where 5d and 6d spaces are explored, they tend to find very few outliers. 
 
 ### Cumulative Counts by Dimension
-![Counts up to Dimension](https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/Results/counts_up_to_dim_bar.png)
+<img src="https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/Results/counts_up_to_dim_bar.png" alt="drawing" width="650"/>
 
 This is a cumulative count of the same information, indicating what percent of rows (averaged over 100 datasets) are flagged as outliers when examining up to each number of dimensions. This indicates that even at 1d, 2d, or 3d, it is often the case that more rows have been flagged than can be realistically investigated in any case, and while checking higher dimensions, is slower and less interpretable, it will likely discover few additional outliers on top of an already-sufficient result set. However, exceptions do occur.
 
