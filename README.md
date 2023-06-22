@@ -31,6 +31,11 @@ A known issue with the use of categorical-based outlier detection systems, such 
 
 Binning numeric data does introduce a small number of decisions, but also eliminates the distance metrics required by numeric-based outlier detectors, and the need to numerically encode categorical columns. 
 
+## Numbers of Rows Flagged
+Ideally an outlier detector flags a sensible number of rows, for example 0.1 to 2% of the total rows, as this makes intuitive sense. Particularly with large datasets, we expect at least some outliers, but flagging too many is counterintuitive as by definition only so many rows may be unusual. As with most outlier detectors, this may flag a large number of rows, but allows ordering the the outliers based on score, where the score is a very straightforward value. 
+
+One does usually want a diversity of outliers as well (some sets of outlier rows may be essentially the same thing, so a user needs only an example of one, and a count of how often outliers of this sort occur). This detector lets makes examining the flagged outliers more straight-forward than most, as it will classify the outliers, based on the number of columns, and the specific set of columns. For example, there may be several outliers based on the combination of values in columns B, C and E, which may be considered, though possibly somewhat different (if containing different specifical values), either identical or at least related outliers. 
+
 ## Key Qualities of CountsOutlierDetector
 This detector has the advantages of: 
 
