@@ -1,6 +1,6 @@
 # CountsOutlierDetector
 
-CountsOutlierDetector is designed to be a highly-interpretable outlier detector. 
+CountsOutlierDetector is a highly-interpretable outlier detector. 
 
 ## Overview
 CountsOutlierDetector is an interpretable, intuitive, efficient outlier detector intended for tabular data. It is a categorical-based detector; all numeric features will be automatically binned and treated equivalently as categorical features. It is designed to provide clear explanations of the rows flagged as outliers and their specific scores. 
