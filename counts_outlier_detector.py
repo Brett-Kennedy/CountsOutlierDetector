@@ -7,8 +7,12 @@ from datetime import datetime
 from sklearn.preprocessing import OrdinalEncoder, KBinsDiscretizer
 import concurrent
 from statistics import mean
+import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
+from IPython import get_ipython
+from IPython.display import display, Markdown
+
 
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -54,8 +58,8 @@ class CountsOutlierDetector:
             max_dimensions = 6
 
         if results_folder == "" and results_name != "":
-            print(("results_folder is required when results_file is specified. Specify both in order to save output"
-                   "to a .csv file. Exiting."))
+            print(("Error: results_folder is required when results_file is specified. Specify both in order to save "
+                   "output to a .csv file."))
             return
 
         self.n_bins = n_bins
@@ -106,6 +110,9 @@ class CountsOutlierDetector:
         # todo:describe
         self.unique_vals = None
         self.num_unique_vals = None
+
+        # todo: describe
+        self.shifted_cmap = None
 
         # Set the seed to ensure consistent results from run to run on the same dataset.
         np.random.seed(0)
@@ -882,17 +889,21 @@ class CountsOutlierDetector:
                     .sort_values('TOTAL SCORE', ascending=False))
         ret_df = self.data_df.loc[index_df.index].copy()
         ret_df.insert(0, 'TOTAL SCORE', index_df['TOTAL SCORE'])
+        if ret_df.empty:
+            print("No rows were flagged.")
         return ret_df
 
     def plot_scores_distribution(self):
         scores_arr = self.flagged_rows_df['TOTAL SCORE']
         s = sns.countplot(x=scores_arr)
         s.set_title("Distribution of Final Scores by Row Count")
+        skip_x_ticks(s)
         plt.show()
 
         list_scores_arr = list(filter(lambda x: x != 0, scores_arr.tolist()))
         s = sns.countplot(x=list_scores_arr)
         s.set_title("Distribution of Final Scores by Row Count (Excluding Zero)")
+        skip_x_ticks(s)
         plt.show()
 
         scores_arr = scores_arr.sort_values()
@@ -912,7 +923,12 @@ class CountsOutlierDetector:
             column_name = part1.replace("[Column: ", "")
             column_name = column_name[:-2]  # Remove the trailing comma
             col_idx = self.data_df.columns.tolist().index(column_name)
-            print(f"Unusual value in column: {column_name}")
+
+            title = f"Unusual value in column: {column_name}"
+            if is_notebook():
+                display(Markdown(f'### {title}'))
+            else:
+                print(title)
 
             # Get the row indexes that have this value
             part_rest = part_rest.replace('Value: ', '')
@@ -921,22 +937,30 @@ class CountsOutlierDetector:
             if self.col_types_arr[col_idx] == 'C':
                 pass  # todo: fill in!
             else:
-                s = sns.distplot(x=self.orig_df[column_name])
-                s.set_title(f"Distribution of values in {column_name}\nBin Edges in Green\nFlagged Values in Red")
+                fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(11, 4))
+
+                s = sns.distplot(x=self.orig_df[column_name], ax=ax[0])
+                s.set_title(f"Distribution of actual values in {column_name}")
 
                 # Add a green vertical line for the bin boundaries
                 for i in range(self.n_bins):
                     bin_edge = self.bin_edges[col_idx][i]
                     s.axvline(bin_edge, color='green', linewidth=0.5)
 
-                # Add a red vertical line for each flagged value
+                # Add a brown vertical line for each flagged value
                 sub_df = self.data_df[self.data_df[column_name] == int(data_value.replace('Bin ', ''))]
                 for i in sub_df.index:
                     orig_value = self.orig_df.loc[i, column_name]
-                    s.axvline(orig_value, color='r')
-                plt.show()
+                    s.axvline(orig_value, color='brown', linewidth=0.5)
 
-                s = sns.countplot(x=self.data_df[column_name])
+                # Add a thick red line for the current row
+                orig_value = self.orig_df.loc[row_index, column_name]
+                s.axvline(orig_value, color='red', linewidth=2.0)
+                s.set_xlabel((f"{column_name} \n"
+                              f"Row {row_index}: thick red line\n"
+                              f"Bin edges in green, other flagged values in red"))
+
+                s = sns.countplot(x=self.data_df[column_name], ax=ax[1])
                 s.set_title(f"Distribution of binned values in {column_name}")
                 s.set_xlabel(f"{column_name} (binned)")
                 plt.show()
@@ -953,7 +977,11 @@ class CountsOutlierDetector:
             column_name_2 = column_name_2[:-2]  # Remove the trailing comma
             col_idx_1 = self.data_df.columns.tolist().index(column_name_1)
             col_idx_2 = self.data_df.columns.tolist().index(column_name_2)
-            print(f"Unusual values in columns: {column_name_1} and {column_name_2}")
+            title = f"Unusual values in columns: {column_name_1} and {column_name_2}"
+            if is_notebook():
+                display(Markdown(f'### {title}'))
+            else:
+                print(title)
 
             # Get the row indexes that have this value
             part_rest = part_rest.replace('Value: ', '')
@@ -963,10 +991,12 @@ class CountsOutlierDetector:
             if self.col_types_arr[col_idx_1] == 'C':
                 pass  # todo: fill in! handle where neither, one, or both is categorical/ numeric
             else:
-                s = sns.scatterplot(x=self.orig_df[column_name_1], y=self.orig_df[column_name_2])
-                s.set_title(f"Distribution of values in {column_name_1} and {column_name_2}")
-                s.set_xlim((self.orig_df[column_name_1].min(), self.orig_df[column_name_1].max()))
-                s.set_ylim((self.orig_df[column_name_2].min(), self.orig_df[column_name_2].max()))
+                fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(11, 4), gridspec_kw={'width_ratios': [1, 1]})
+
+                s = sns.scatterplot(x=self.orig_df[column_name_1], y=self.orig_df[column_name_2], ax=ax[0])
+                s.set_title(f"Distribution of Actual Values in Columns\n{column_name_1} and \n{column_name_2}")
+                s.set_xlim(self.bin_edges[col_idx_1][0], self.bin_edges[col_idx_1][-1])
+                s.set_ylim(self.bin_edges[col_idx_2][0], self.bin_edges[col_idx_2][-1])
                 xlim = s.get_xlim()
                 ylim = s.get_ylim()
 
@@ -986,7 +1016,7 @@ class CountsOutlierDetector:
                 for i in sub_df.index:
                     orig_value_1 = self.orig_df.loc[i, column_name_1]
                     orig_value_2 = self.orig_df.loc[i, column_name_2]
-                    s = sns.scatterplot(x=[orig_value_1], y=[orig_value_2], color='r')
+                    s = sns.scatterplot(x=[orig_value_1], y=[orig_value_2], color='r', ax=ax[0])
                     s.set_xlim(xlim)
                     s.set_ylim(ylim)
 
@@ -998,14 +1028,30 @@ class CountsOutlierDetector:
                             for r in rows_matching:
                                 orig_value_1 = self.orig_df.loc[r, column_name_1]
                                 orig_value_2 = self.orig_df.loc[r, column_name_2]
-                                s = sns.scatterplot(x=[orig_value_1], y=[orig_value_2], color='gold')
+                                s = sns.scatterplot(x=[orig_value_1], y=[orig_value_2], color='gold', ax=ax[0])
                                 s.set_xlim(xlim)
                                 s.set_ylim(ylim)
 
-                plt.show()
+                # Add a star for the point representing the current row
+                orig_value_1 = self.orig_df.loc[row_index, column_name_1]
+                orig_value_2 = self.orig_df.loc[row_index, column_name_2]
+                s = sns.scatterplot(x=[orig_value_1], y=[orig_value_2], color='red', marker='*', s=200, ax=ax[0])
+                s.set_xlim(xlim)
+                s.set_ylim(ylim)
 
-                unique_vals_1 = sorted(self.data_df[column_name_1].unique())
-                unique_vals_2 = sorted(self.data_df[column_name_2].unique(), reverse=True)
+                s.set_xlabel((f'{column_name_1}\nRow {row_index} represented as star. \nOther 2d anomalies for this '
+                              f'pair of features as red dots. \n1d anomalies as yellow dots.'))
+
+                if self.col_types_arr[col_idx_1] == 'N':
+                    unique_vals_1 = list(range(0, self.n_bins))
+                else:
+                    unique_vals_1 = sorted(self.data_df[column_name_1].unique())
+
+                if self.col_types_arr[col_idx_2] == 'N':
+                    unique_vals_2 = sorted(range(0, self.n_bins), reverse=True)
+                else:
+                    unique_vals_2 = sorted(self.data_df[column_name_2].unique(), reverse=True)
+
                 counts_arr = []
                 for v2 in unique_vals_2:
                     row_arr = []
@@ -1014,10 +1060,39 @@ class CountsOutlierDetector:
                                                         (self.data_df[column_name_2] == v2)]))
                     counts_arr.append(row_arr)
                 counts_df = pd.DataFrame(counts_arr, columns=unique_vals_1, index=unique_vals_2)
-                s = sns.heatmap(data=counts_df, annot=True, fmt="d", cmap='Blues')
-                s.set_title(f"Distribution of binned values in {column_name_1} and {column_name_2}")
+
+                orig_cmap = matplotlib.cm.RdBu
+                if self.shifted_cmap is None:
+                    self.shifted_cmap = shiftedColorMap(orig_cmap, midpoint=0.05, name='shifted')
+                s = sns.heatmap(
+                    data=counts_df,
+                    annot=True,
+                    fmt="d",
+                    cmap=self.shifted_cmap,
+                    mask=(counts_df == 0),
+                    linecolor='green',
+                    linewidth=.5,
+                    cbar=False,
+                    ax=ax[1])
+                s.set_title(f"Distribution of Binned Values in Columns\n{column_name_1} and \n{column_name_2}")
                 s.set_xlabel(column_name_1)
                 s.set_ylabel(column_name_2)
+                heatmap_xlim = s.get_xlim()
+                heatmap_ylim = s.get_ylim()
+
+                # Ensure the frame is visible
+                for _, spine in s.spines.items():
+                    spine.set_visible(True)
+
+                # Draw the current row as a star
+                s = sns.scatterplot(
+                    x=[(orig_value_1 - xlim[0]) / (xlim[1] - xlim[0]) * (heatmap_xlim[1] - heatmap_xlim[0])],
+                    y=[(orig_value_2 - ylim[1]) / (ylim[0] - ylim[1]) * (heatmap_ylim[0] - heatmap_ylim[1])],
+                    color='yellow', marker='*', s=100, ax=ax[1])
+
+                s.set_xlabel(f'{column_name_1}\nRow {row_index} represented as star')
+
+                plt.tight_layout()
                 plt.show()
 
         def print_outlier_multi_d(dim, str):
@@ -1038,10 +1113,17 @@ class CountsOutlierDetector:
             print("Invalid row index")
             return
 
-        print()
-        print(f"Explanation Row: {row_index}")
+        if is_notebook():
+            display(Markdown(f"**Explanation row number**: {row_index}"))
+        else:
+            print(f"Explanation row number: {row_index}")
+
         row = self.flagged_rows_df.iloc[row_index]
-        print(f"Total Score: {row['TOTAL SCORE']}")
+        if is_notebook():
+            display(Markdown(f"**Total score**: {row['TOTAL SCORE']}"))
+        else:
+            print(f"Total score: {row['TOTAL SCORE']}")
+
         for dim in range(self.max_dimensions):
             col_name = f'{dim}d Explanations'
             if col_name not in self.flagged_rows_df.columns:
@@ -1098,7 +1180,7 @@ class CountsOutlierDetector:
                 col_types_arr[c] = 'C'
             # Even where the values are numeric, if there are few of them, consider them categorical, though if the
             # values are all float, the column will be cast to 'N' when collecting the unique values.
-            elif is_numeric_dtype(self.data_df[self.data_df.columns[c]]) and num_unique <= 25:
+            elif is_numeric_dtype(self.data_df[self.data_df.columns[c]]) and num_unique <= self.n_bins:
                 col_types_arr[c] = 'C'
 
         # If there are a large number of categorical columns, re-determine the types with a more strict cutoff
@@ -1696,7 +1778,6 @@ def flatten(arr):
         if not any([1 if type(x) is list else 0 for x in arr]):
             return arr
         arr = [i for row in arr for i in row]
-    return arr
 
 
 def is_float(v):
@@ -1712,3 +1793,78 @@ def is_float(v):
         return False
 
 
+def skip_x_ticks(s):
+    max_ticks = 15
+    num_ticks = len(s.xaxis.get_ticklabels())
+    if num_ticks < max_ticks:
+        return
+    step = num_ticks // max_ticks
+    for label_idx, label in enumerate(s.xaxis.get_ticklabels()):
+        if label_idx % step != 0:
+            label.set_visible(False)
+
+
+def is_notebook() -> bool:
+    try:
+        shell = get_ipython().__class__.__name__
+        if shell == 'ZMQInteractiveShell':
+            return True   # Jupyter notebook or qtconsole
+        elif shell == 'TerminalInteractiveShell':
+            return False  # Terminal running IPython
+        else:
+            return False  # Other type (?)
+    except NameError:
+        return False      # Probably standard Python interpreter
+
+
+# From https://stackoverflow.com/questions/7404116/defining-the-midpoint-of-a-colormap-in-matplotlib
+def shiftedColorMap(cmap, start=0, midpoint=0.5, stop=1.0, name='shiftedcmap'):
+    """
+    Function to offset the "center" of a colormap. Useful for
+    data with a negative min and positive max and you want the
+    middle of the colormap's dynamic range to be at zero.
+
+    Input
+    -----
+      cmap : The matplotlib colormap to be altered
+      start : Offset from lowest point in the colormap's range.
+          Defaults to 0.0 (no lower offset). Should be between
+          0.0 and `midpoint`.
+      midpoint : The new center of the colormap. Defaults to
+          0.5 (no shift). Should be between 0.0 and 1.0. In
+          general, this should be  1 - vmax / (vmax + abs(vmin))
+          For example if your data range from -15.0 to +5.0 and
+          you want the center of the colormap at 0.0, `midpoint`
+          should be set to  1 - 5/(5 + 15)) or 0.75
+      stop : Offset from highest point in the colormap's range.
+          Defaults to 1.0 (no upper offset). Should be between
+          `midpoint` and 1.0.
+    """
+    cdict = {
+        'red': [],
+        'green': [],
+        'blue': [],
+        'alpha': []
+    }
+
+    # regular index to compute the colors
+    reg_index = np.linspace(start, stop, 257)
+
+    # shifted index to match the data
+    shift_index = np.hstack([
+        np.linspace(0.0, midpoint, 128, endpoint=False),
+        np.linspace(midpoint, 1.0, 129, endpoint=True)
+    ])
+
+    for ri, si in zip(reg_index, shift_index):
+        r, g, b, a = cmap(ri)
+
+        cdict['red'].append((si, r, r))
+        cdict['green'].append((si, g, g))
+        cdict['blue'].append((si, b, b))
+        cdict['alpha'].append((si, a, a))
+
+    newcmap = matplotlib.colors.LinearSegmentedColormap(name, cdict)
+    plt.register_cmap(cmap=newcmap)
+
+    return newcmap
