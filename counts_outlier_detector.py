@@ -16,7 +16,6 @@ import seaborn as sns
 from IPython import get_ipython
 from IPython.display import display, Markdown
 
-
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -25,9 +24,11 @@ class CountsOutlierDetector:
     def __init__(self,
                  n_bins=7,
                  max_dimensions=6,
-                 max_num_combinations=10_000_000,
+                 threshold=0.25,
+                 check_marginal_probs=False,
+                 max_num_combinations=100_000,
                  min_values_per_column=2,
-                 max_values_per_column=50,
+                 max_values_per_column=25,
                  results_folder="",
                  results_name="",
                  run_parallel=False,
@@ -38,11 +39,25 @@ class CountsOutlierDetector:
         :param max_dimensions: int
             The maximum number of columns examined at any time. If set to, for example, 4, then the detector will check
             for 1d, 2d, 3d, and 4d outliers, but not outliers in higher dimensions.
+        :param threshold: float
+            Used to determine which values or combinations of values are considered rare. Any set of values that has
+            a count less than threshold * the expected count under a uniform distribution are flagged as outliers. For
+            example, if considering a set of three columns, if the cardinalities are 4, 8, and 3, then there are
+            4*8*3=96 potential combinations. If there are 10,000 rows, we would expect (under a uniform distribution)
+            10000/96 = 104.16 rows in each combination. If threshold is set to 0.25, we flag any combinations that have
+            less than 104.16 * 0.25 = 26 rows. When threshold is set to a very low value, only very unusual values and
+            combinations of values will be flagged. When set to a higher value, many more will be flagged, and rows
+            will be differentiated more by their total scores than if they have any extreme anomalies.
+        :param check_marginal_probs: bool
+            If set true, values will be flagged only if they are both rare and rare given the marginal probabilities of
+            the relevant feature values.  
         :param max_num_combinations: int
             This, as well as max_dimensions, determines the maximum number of dimensions that may be examined at a time.
             When determining if the detector considers, for example, 3d outliers, it examines the number of columns and
             average number of unique values per column and estimates the total number of combinations. If this exceeds
-            max_num_combinations, the detector will not consider spaces of this dimensionality or higher.
+            max_num_combinations, the detector will not consider spaces of this dimensionality or higher. This parameter
+            may be set to reduce the time or memory required or to limit the flagged values to lower dimensions for
+            greater interpretability. It may also be set higher to help identify more outliers where desired.
         :param min_values_per_column: int
             The detector excludes from examination any columns with less than this number of unique values
         :param max_values_per_column: int
@@ -70,7 +85,10 @@ class CountsOutlierDetector:
 
         self.n_bins = n_bins
         self.max_dimensions = max_dimensions
+        self.threshold = threshold
+        self.check_marginal_probs = check_marginal_probs
         self.max_num_combinations = max_num_combinations
+        self.min_values_per_column = min_values_per_column
         self.min_values_per_column = min_values_per_column
         self.max_values_per_column = max_values_per_column
         self.results_folder = results_folder
@@ -88,9 +106,6 @@ class CountsOutlierDetector:
         # An encoder used to convert all categorical values to numbers. An ordinal representation is used for each
         # categorical value for efficiency.
         self.ordinal_encoders_arr = []
-
-        # todo: fill in description of variabel
-        self.divisor = 0.25  # todo: loop through different values of this to see how it affects the results.
 
         # Copy of the input dataframe.
         self.orig_df = None
@@ -133,10 +148,12 @@ class CountsOutlierDetector:
         np.random.seed(0)
         random.seed(0)
 
-        # Set display options for dataframes
-        pd.options.display.max_columns = 1000
-        pd.options.display.max_rows = 1000
-        pd.options.display.width = 10000
+        # Set display options for dataframes. This is not done with notebooks, as in some cases it may have performance
+        # implications for jupyter.
+        if not is_notebook():
+            pd.options.display.max_columns = 1000
+            pd.options.display.max_rows = 1000
+            pd.options.display.width = 10000
 
     # Using numba appears to give similar performance results. The current implementation is without numba.
     def predict(self, input_data):
@@ -243,7 +260,7 @@ class CountsOutlierDetector:
 
             for i in range(num_cols):
 
-                col_threshold = (1.0 / self.num_unique_vals[i]) * self.divisor  # todo: make self.divisor a hyperparameter -- need to explain it well!!
+                col_threshold = (1.0 / self.num_unique_vals[i]) * self.threshold
 
                 # Array with an element for each unique value in column i. Indicates the fraction of the total dataset
                 # held by that value.
@@ -260,8 +277,6 @@ class CountsOutlierDetector:
                         rows_matching = np.where(self.data_np[:, i] == v)
                         for r in rows_matching[0]:
                             outliers_1d_arr[r] += 1
-                            # outliers_explanation_arr[r] += f'[Column: {self.data_df.columns[i]}, ' + \
-                            #                                f'Value: {self._get_col_value(i,v)}, Fraction: {frac}]'
                             expl = [[self.data_df.columns[i]], [self._get_col_value(i, v)]]
                             if outliers_explanation_arr[r] == []:
                                 outliers_explanation_arr[r] = [expl]
@@ -306,14 +321,6 @@ class CountsOutlierDetector:
                 fractions_2d.append([[]] * num_cols)
                 rare_2d_values.append([[]] * num_cols)
 
-            # todo: replace for 3,4,5,6 as well
-            # num_combinations = self.__get_num_combinations(dim=2)
-            # if num_combinations > self.max_num_combinations:
-            #     self.run_summary += (
-            #         f"\n\nCannot determine 2d outliers given the number of columns ({num_cols}) and number of unique "
-            #         f"values in each. Estimated number of combinations: {round(num_combinations):,}")
-            #     return fractions_2d, rare_2d_values, outliers_2d_arr, outliers_explanation_arr
-
             dt_display_prev = datetime.now()
             for i in range(num_cols - 1):
                 if self.verbose and i > 0 and len(self.data_df.columns) > 20:
@@ -335,12 +342,17 @@ class CountsOutlierDetector:
                         j_rare_arr = []
                         for j_vals_idx in range(len(fractions_2d[i][j][i_vals_idx])):
                             current_fraction = fractions_2d[i][j][i_vals_idx][j_vals_idx]
-                            expected_given_marginal = fractions_1d[i][i_vals_idx] * fractions_1d[j][j_vals_idx]
+                            if self.check_marginal_probs:
+                                expected_given_marginal = fractions_1d[i][i_vals_idx] * \
+                                                          fractions_1d[j][j_vals_idx] * \
+                                                          self.threshold
+                            else:
+                                expected_given_marginal = np.inf
                             rare_value_flag = (not rare_1d_values[i][i_vals_idx]) and \
                                               (not rare_1d_values[j][j_vals_idx]) and \
-                                              (current_fraction < (expected_under_uniform * self.divisor)) and \
+                                              (current_fraction < (expected_under_uniform * self.threshold)) and \
+                                              (current_fraction < expected_given_marginal) and \
                                               (current_fraction < 0.01)
-                                               # (current_fraction < (expected_given_marginal * self.divisor)) and \
 
                             if rare_value_flag:
                                 row_nums = two_d_row_nums[i_vals_idx][j_vals_idx]
@@ -349,15 +361,9 @@ class CountsOutlierDetector:
                                      f"current_fraction*num_rows: {current_fraction * num_rows}")
                                 for r in row_nums:
                                     outliers_2d_arr[r] += 1
-                                    # todo: format this for 4d, 5d and 6d too (done for 3d) -- check works in parallel first
-                                    # outliers_explanation_arr[r] += \
-                                    #     (f"[Columns: {self.data_df.columns[i]} and {self.data_df.columns[j]}, "
-                                    #      f"Values: {self._get_col_value(i, i_vals_idx)} and "
-                                    #      f"{self._get_col_value(j, j_vals_idx)}, "
-                                    #      f"Fraction: {current_fraction}]")
                                     expl = [[self.data_df.columns[i], self.data_df.columns[j]],
                                             [self._get_col_value(i, i_vals_idx), self._get_col_value(j, j_vals_idx)]]
-                                    if outliers_explanation_arr[r] == []:
+                                    if not outliers_explanation_arr[r]:
                                         outliers_explanation_arr[r] = [expl]
                                     else:
                                         outliers_explanation_arr[r].append(expl)
@@ -381,7 +387,7 @@ class CountsOutlierDetector:
             todo: explain each of these
             """
 
-            fractions_3d = [[]] * num_cols # todo: not used, though will if go to 4d
+            fractions_3d = [[]] * num_cols
             rare_3d_values = [[]] * num_cols
             outliers_3d_arr = [0] * num_rows
             outliers_explanation_arr = [[]] * num_rows
@@ -408,7 +414,7 @@ class CountsOutlierDetector:
                                             fractions_1d,
                                             rare_1d_values,
                                             rare_2d_values,
-                                            self.divisor)
+                                            self.threshold)
                         process_arr.append(f)
                     for f_idx, f in enumerate(process_arr):
                         rare_arr_for_i, outliers_3d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i = f.result()
@@ -417,7 +423,16 @@ class CountsOutlierDetector:
                         outliers_explanation_arr = [x + y for x, y in zip(outliers_explanation_arr, outliers_explanation_arr_for_i)]
                         column_combos_checked += column_combos_checked_for_i
             else:
+                dt_display_prev = datetime.now()
                 for i in range(num_cols):
+                    if self.verbose and i > 0 and len(self.data_df.columns) > 20:
+                        num_combinations_left = self.__get_num_combinations(dim=3, num_cols_processed=i)
+                        percent_complete = (num_combinations - num_combinations_left) * 100.0 / num_combinations
+                        dt_display = datetime.now()
+                        if (dt_display - dt_display_prev) > timedelta(seconds=5):
+                            print(f"  {percent_complete:.2f}% complete")
+                            dt_display_prev = dt_display
+
                     rare_arr_for_i, outliers_3d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i = process_inner_loop_3d(
                         self,
                         i,
@@ -428,7 +443,7 @@ class CountsOutlierDetector:
                         fractions_1d,
                         rare_1d_values,
                         rare_2d_values,
-                        self.divisor
+                        self.threshold
                     )
                     rare_3d_values[i] = rare_arr_for_i
                     outliers_3d_arr = [x + y for x, y in zip(outliers_3d_arr, outliers_3d_arr_for_i)]
@@ -488,7 +503,16 @@ class CountsOutlierDetector:
                         outliers_explanation_arr = [x + y for x, y in zip(outliers_explanation_arr, outliers_explanation_arr_for_i)]
                         column_combos_checked += column_combos_checked_for_i
             else:
+                dt_display_prev = datetime.now()
                 for i in range(num_cols):
+                    if self.verbose and i > 0:
+                        num_combinations_left = self.__get_num_combinations(dim=4, num_cols_processed=i)
+                        percent_complete = (num_combinations - num_combinations_left) * 100.0 / num_combinations
+                        dt_display = datetime.now()
+                        if (dt_display - dt_display_prev) > timedelta(seconds=5):
+                            print(f"  {percent_complete:.2f}% complete")
+                            dt_display_prev = dt_display
+
                     rare_arr_for_i, outliers_4d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i = process_inner_loop_4d(
                         self,
                         i,
@@ -500,7 +524,7 @@ class CountsOutlierDetector:
                         rare_1d_values,
                         rare_2d_values,
                         rare_3d_values,
-                        self.divisor
+                        self.threshold
                     )
                     rare_4d_values[i] = rare_arr_for_i
                     outliers_4d_arr = [x + y for x, y in zip(outliers_4d_arr, outliers_4d_arr_for_i)]
@@ -554,7 +578,7 @@ class CountsOutlierDetector:
                                             rare_2d_values,
                                             rare_3d_values,
                                             rare_4d_values,
-                                            self.divisor)
+                                            self.threshold)
                         process_arr.append(f)
                     for f_idx, f in enumerate(process_arr):
                         rare_arr_for_i, outliers_5d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i = f.result()
@@ -563,7 +587,16 @@ class CountsOutlierDetector:
                         outliers_explanation_arr = [x + y for x, y in zip(outliers_explanation_arr, outliers_explanation_arr_for_i)]
                         column_combos_checked += column_combos_checked_for_i
             else:
+                dt_display_prev = datetime.now()
                 for i in range(num_cols):
+                    if self.verbose and i > 0:
+                        num_combinations_left = self.__get_num_combinations(dim=5, num_cols_processed=i)
+                        percent_complete = (num_combinations - num_combinations_left) * 100.0 / num_combinations
+                        dt_display = datetime.now()
+                        if (dt_display - dt_display_prev) > timedelta(seconds=5):
+                            print(f"  {percent_complete:.2f}% complete")
+                            dt_display_prev = dt_display
+
                     rare_arr_for_i, outliers_5d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i = process_inner_loop_5d(
                         self,
                         i,
@@ -576,7 +609,7 @@ class CountsOutlierDetector:
                         rare_2d_values,
                         rare_3d_values,
                         rare_4d_values,
-                        self.divisor
+                        self.threshold
                     )
                     rare_5d_values[i] = rare_arr_for_i
                     outliers_5d_arr = [x + y for x, y in zip(outliers_5d_arr, outliers_5d_arr_for_i)]
@@ -630,7 +663,7 @@ class CountsOutlierDetector:
                                             rare_3d_values,
                                             rare_4d_values,
                                             rare_5d_values,
-                                            self.divisor)
+                                            self.threshold)
                         process_arr.append(f)
                     for f_idx, f in enumerate(process_arr):
                         rare_arr_for_i, outliers_6d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i = f.result()
@@ -639,7 +672,16 @@ class CountsOutlierDetector:
                         outliers_explanation_arr = [x + y for x, y in zip(outliers_explanation_arr, outliers_explanation_arr_for_i)]
                         column_combos_checked += column_combos_checked_for_i
             else:
+                dt_display_prev = datetime.now()
                 for i in range(num_cols):
+                    if self.verbose and i > 0:
+                        num_combinations_left = self.__get_num_combinations(dim=6, num_cols_processed=i)
+                        percent_complete = (num_combinations - num_combinations_left) * 100.0 / num_combinations
+                        dt_display = datetime.now()
+                        if (dt_display - dt_display_prev) > timedelta(seconds=5):
+                            print(f"  {percent_complete:.2f}% complete")
+                            dt_display_prev = dt_display
+
                     rare_arr_for_i, outliers_6d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i = process_inner_loop_6d(
                         self,
                         i,
@@ -653,7 +695,7 @@ class CountsOutlierDetector:
                         rare_3d_values,
                         rare_4d_values,
                         rare_5d_values,
-                        self.divisor
+                        self.threshold
                     )
                     rare_6d_values[i] = rare_arr_for_i
                     outliers_6d_arr = [x + y for x, y in zip(outliers_6d_arr, outliers_6d_arr_for_i)]
@@ -758,6 +800,7 @@ class CountsOutlierDetector:
         self.col_types_arr = self.__get_col_types_arr()
         self.numeric_col_names = [self.data_df.columns[x]
                                   for x in range(len(self.col_types_arr)) if self.col_types_arr[x] == 'N']
+
         # Fill any null values with the mode/median value. Doing this ensures null values are not typically flagged.
         for col_idx, col_name in enumerate(self.data_df.columns):
             if self.col_types_arr[col_idx] == 'C':
@@ -853,7 +896,6 @@ class CountsOutlierDetector:
         # Determine the 3d stats unless there are too many columns and unique values to do so efficiently
         checked_3d = False
         column_combos_checked_3d = -1
-        # avg_num_unique_vals = mean([len(x) for x in self.unique_vals])
         num_combinations = self.__get_num_combinations(dim=3)
         if num_combinations > self.max_num_combinations:
             self.run_summary += (
@@ -868,7 +910,6 @@ class CountsOutlierDetector:
             self.dimensions_examined = 3
 
         # Determine the 4d stats unless there are too many columns and unique values to do so efficiently
-        # todo here and above just use pow method
         checked_4d = False
         column_combos_checked_4d = -1
         num_combinations = self.__get_num_combinations(dim=4)
@@ -877,8 +918,9 @@ class CountsOutlierDetector:
         if num_cols < 4:
             self.run_summary += f"\n\nCannot determine 4d outliers. Too few columns: {num_cols}."  # todo: these are printing before the output for 1d, 2d, 3d
         elif num_combinations > self.max_num_combinations:
-            self.run_summary += (f"\n\nCannot determine 4d outliers given the number of columns ({num_cols}) and number of "
-                           f"unique values in each. Estimated number of combinations: {round(num_combinations):,}")
+            self.run_summary += \
+                (f"\n\nCannot determine 4d outliers given the number of columns ({num_cols}) and number of unique "
+                 f"values in each. Estimated number of combinations: {round(num_combinations):,}")
         else:
             fractions_4d, rare_4d_values, outliers_4d_arr, explanations_4d_arr, column_combos_checked_4d = \
                 get_4d_stats(num_combinations=num_combinations)
@@ -912,7 +954,9 @@ class CountsOutlierDetector:
         if num_cols < 6:
             self.run_summary += f"\n\nCannot determine 6d outliers. Too few columns: {num_cols}."  # todo: these are printing before the output for 1d, 2d, 3d
         elif num_combinations > self.max_num_combinations:
-            self.run_summary += f"\n\nCannot determine 6d outliers given the number of columns ({num_cols}) and number of unique values in each. Estimated number of combinations: {round(num_combinations):,}"
+            self.run_summary += (
+                f"\n\nCannot determine 6d outliers given the number of columns ({num_cols}) and number of unique "
+                f"values in each. Estimated number of combinations: {round(num_combinations):,}")
         else:
             fractions_6d, rare_6d_values, outliers_6d_arr, explanations_6d_arr, column_combos_checked_6d = \
                 get_6d_stats(num_combinations=num_combinations)
@@ -970,6 +1014,17 @@ class CountsOutlierDetector:
             self.flagged_rows_df['Any Scored'].sum() * 100.0 / num_rows
             ]]),
             columns=run_summary_df.columns))
+
+        # Set the correct column types
+        run_summary_df['Checked_2d'] = run_summary_df['Checked_2d'].astype(bool)
+        run_summary_df['Checked_3d'] = run_summary_df['Checked_3d'].astype(bool)
+        run_summary_df['Checked_4d'] = run_summary_df['Checked_4d'].astype(bool)
+        run_summary_df['Checked_5d'] = run_summary_df['Checked_5d'].astype(bool)
+        run_summary_df['Checked_6d'] = run_summary_df['Checked_6d'].astype(bool)
+        run_summary_df['3d column combos checked'] = run_summary_df['3d column combos checked'].astype(int)
+        run_summary_df['4d column combos checked'] = run_summary_df['4d column combos checked'].astype(int)
+        run_summary_df['5d column combos checked'] = run_summary_df['5d column combos checked'].astype(int)
+        run_summary_df['6d column combos checked'] = run_summary_df['6d column combos checked'].astype(int)
 
         return create_return_dict()
 
@@ -1131,7 +1186,7 @@ class CountsOutlierDetector:
             # If one column is categorical and one numeric, display a strip plot
             elif ((self.col_types_arr[col_idx_1] == 'C') and (self.col_types_arr[col_idx_2] == 'N') or
                   (self.col_types_arr[col_idx_1] == 'N') and (self.col_types_arr[col_idx_2] == 'C')):
-                hue_array = ['Unflagged']*len(self.orig_df)
+                hue_array = ['Unflagged'] * len(self.orig_df)
                 hue_array[row_index] = 'Flagged'
                 s = sns.stripplot(
                     x=self.orig_df[column_name_1],
@@ -1149,7 +1204,7 @@ class CountsOutlierDetector:
             else:
                 fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(11, 4), gridspec_kw={'width_ratios': [1, 1]})
 
-                s = sns.scatterplot(x=self.orig_df[column_name_1], y=self.orig_df[column_name_2], ax=ax[0])
+                s = sns.scatterplot(x=self.orig_df[column_name_1].astype(float), y=self.orig_df[column_name_2].astype(float), ax=ax[0])
                 s.set_title(f"Distribution of Actual Values in Columns\n{column_name_1} and \n{column_name_2}")
                 numeric_col_idx_1 = self.numeric_col_names.index(column_name_1)
                 numeric_col_idx_2 = self.numeric_col_names.index(column_name_2)
@@ -1197,8 +1252,8 @@ class CountsOutlierDetector:
                                 s.set_ylim(ylim)
 
                 # Add a star for the point representing the current row
-                orig_value_1 = self.orig_df.loc[row_index, column_name_1]
-                orig_value_2 = self.orig_df.loc[row_index, column_name_2]
+                orig_value_1 = float(self.orig_df.loc[row_index, column_name_1])
+                orig_value_2 = float(self.orig_df.loc[row_index, column_name_2])
                 s = sns.scatterplot(x=[orig_value_1], y=[orig_value_2], color='darkred', marker='*', s=300, ax=ax[0])
                 s.set_xlim(xlim)
                 s.set_ylim(ylim)
@@ -1264,7 +1319,6 @@ class CountsOutlierDetector:
 
         def print_outlier_multi_d(explanation):
             cols = explanation[0]
-            # values = explanation[1]
 
             title = "Unusual values in "
             for idx in range(len(cols)):
@@ -1303,8 +1357,15 @@ class CountsOutlierDetector:
             curr_count = len(np.where(cond)[0])
 
             counts_arr.sort(reverse=True)
+
+            # Ensure each count is tall enough to be seen
+            min_val = counts_arr[0] / 100.0
+            counts_arr = [x + min_val for x in counts_arr]
+
+            # Draw the histogram / bar plot
             if len(counts_arr) < 100:
-                bar_colors = ['red' if x == curr_count else 'steelblue' for x in counts_arr]
+                bar_colors = ['steelblue'] * len(counts_arr)
+                bar_colors[counts_arr.index(curr_count + min_val)] = 'red'
                 s = sns.barplot(x=list(range(len(counts_arr))), y=counts_arr, palette=bar_colors)
             else:
                 s = sns.histplot(counts_arr, color='blue')
@@ -1334,7 +1395,7 @@ class CountsOutlierDetector:
             print(f"Displaying first {max_plots} plots")
 
         num_plots = 0
-        for dim in range(self.max_dimensions):
+        for dim in range(self.max_dimensions + 1):
             col_name = f'{dim}d Explanations'
             if col_name not in self.flagged_rows_df.columns:
                 continue
@@ -1488,7 +1549,7 @@ def process_inner_loop_3d(
         divisor):
 
     """
-
+    todo: fill in
     :param obj:
     :param i:
     :param data_np:
@@ -1507,9 +1568,7 @@ def process_inner_loop_3d(
     outliers_explanation_arr_for_i = [[]] * num_rows
     column_combos_checked_for_i = 0
 
-    rare_arr_for_i = [[]] * num_cols
-    for k in range(num_cols):
-        rare_arr_for_i[k] = [[]] * num_cols
+    rare_arr_for_i = [[[] for _ in range(num_cols)] for _ in range(num_cols)]
 
     for j in range(i + 1, num_cols - 1):
         num_unique_vals_j = len(unique_vals[j])
@@ -1522,7 +1581,10 @@ def process_inner_loop_3d(
                 continue
             column_combos_checked_for_i += 1
 
-            local_rare_arr = [[[False]*num_unique_vals_k]*num_unique_vals_j for _ in range(num_unique_vals_i)]
+            local_rare_arr = [[[False
+                                for _ in range(num_unique_vals_k)]
+                               for _ in range(num_unique_vals_j)]
+                              for _ in range(num_unique_vals_i)]
             for i_vals_idx in range(num_unique_vals_i):
                 if rare_1d_values[i][i_vals_idx]:
                     continue
@@ -1548,15 +1610,22 @@ def process_inner_loop_3d(
                         current_fraction = len(rows_all[0]) / num_rows
                         three_d_row_nums = rows_all[0]
 
-                        expected_given_marginal = fractions_1d[i][i_vals_idx] * fractions_1d[j][j_vals_idx] * \
-                                                  fractions_1d[k][k_vals_idx]
+                        if obj.check_marginal_probs:
+                            expected_given_marginal = \
+                                fractions_1d[i][i_vals_idx] * \
+                                fractions_1d[j][j_vals_idx] * \
+                                fractions_1d[k][k_vals_idx] * \
+                                divisor
+                        else:
+                            expected_given_marginal = np.inf
                         rare_value_flag = (current_fraction < (expected_under_uniform * divisor)) and \
-                                          (current_fraction < (expected_given_marginal * divisor)) and \
+                                          (current_fraction < expected_given_marginal) and \
                                           (current_fraction < 0.01)
                         if rare_value_flag:
                             row_nums = three_d_row_nums  # todo: can remove some variables here
                             assert len(row_nums) == round(current_fraction * num_rows), \
-                                f"len of matching rows: {len(row_nums)}, fraction*num_rows: current_fraction*num_rows: {current_fraction * num_rows}"
+                                (f"len of matching rows: {len(row_nums)}, fraction*num_rows: current_fraction*num_rows: " 
+                                 f"{current_fraction * num_rows}")
                             for r in row_nums:
                                 # todo: i doubt this is threadsafe
                                 outliers_3d_arr_for_i[r] += 1
@@ -1564,7 +1633,7 @@ def process_inner_loop_3d(
                                         [obj._get_col_value(i, i_vals_idx),
                                          obj._get_col_value(j, j_vals_idx),
                                          obj._get_col_value(k, k_vals_idx)]]
-                                if outliers_explanation_arr_for_i[r] == []:
+                                if not outliers_explanation_arr_for_i[r]:
                                     outliers_explanation_arr_for_i[r] = [expl]
                                 else:
                                     outliers_explanation_arr_for_i[r].append(expl)
@@ -1589,9 +1658,8 @@ def process_inner_loop_4d(
     num_unique_vals_i = len(unique_vals[i])
     outliers_4d_arr_for_i = [0] * num_rows
     outliers_explanation_arr_for_i = [[]] * num_rows
-    rare_arr_for_i = [[[[]]*num_cols]*num_cols for _ in range(num_cols)]
+    rare_arr_for_i = [[[[] for _ in range(num_cols)] for _ in range(num_cols)] for _ in range(num_cols)]
     column_combos_checked_for_i = 0
-    max_cardinality = max([len(x) for x in unique_vals])
 
     for j in range(i+1, num_cols-2):
         num_unique_vals_j = len(unique_vals[j])
@@ -1606,7 +1674,11 @@ def process_inner_loop_4d(
                     continue
                 column_combos_checked_for_i += 1
 
-                local_rare_arr = [[[[False]*max_cardinality]*max_cardinality]*max_cardinality for _ in range(max_cardinality)]
+                local_rare_arr = [[[[False
+                                     for _ in range(num_unique_vals_m)]
+                                    for _ in range(num_unique_vals_k)]
+                                   for _ in range(num_unique_vals_j)]
+                                  for _ in range(num_unique_vals_i)]
                 for i_vals_idx in range(num_unique_vals_i):
                     if rare_1d_values[i][i_vals_idx]:
                         continue
@@ -1615,10 +1687,10 @@ def process_inner_loop_4d(
                     for j_vals_idx in range(num_unique_vals_j):
                         if rare_1d_values[j][j_vals_idx]:
                             continue
-                        j_val = unique_vals[j][j_vals_idx]
-                        cond2 = (data_np[:, j] == j_val)
                         if rare_2d_values[i][j][i_vals_idx][j_vals_idx]:
                             continue
+                        j_val = unique_vals[j][j_vals_idx]
+                        cond2 = (data_np[:, j] == j_val)
                         for k_vals_idx in range(num_unique_vals_k):
                             if rare_1d_values[k][k_vals_idx]:
                                 continue
@@ -1651,10 +1723,17 @@ def process_inner_loop_4d(
                                 current_fraction = len(rows_all[0]) / num_rows
                                 four_d_row_nums = rows_all[0]  # todo: use less variables
 
-                                expected_given_marginal = fractions_1d[i][i_vals_idx] * fractions_1d[j][j_vals_idx] * \
-                                                          fractions_1d[k][k_vals_idx] * fractions_1d[m][m_vals_idx]
+                                if obj.check_marginal_probs:
+                                    expected_given_marginal = \
+                                        fractions_1d[i][i_vals_idx] * \
+                                        fractions_1d[j][j_vals_idx] * \
+                                        fractions_1d[k][k_vals_idx] * \
+                                        fractions_1d[m][m_vals_idx] * \
+                                        divisor
+                                else:
+                                    expected_given_marginal = np.inf
                                 rare_value_flag = (current_fraction < (expected_under_uniform * divisor)) and \
-                                                  (current_fraction < (expected_given_marginal * divisor)) and \
+                                                  (current_fraction < expected_given_marginal) and \
                                                   (current_fraction < 0.01)
                                 if rare_value_flag:
                                     row_nums = four_d_row_nums  # todo: can remove some variables here
@@ -1664,11 +1743,6 @@ def process_inner_loop_4d(
                                     for r in row_nums:
                                         # todo: i doubt this is threadsafe
                                         outliers_4d_arr_for_i[r] += 1
-                                        # # todo: use the actual values, not their index
-                                        # outliers_explanation_arr_for_i[r] += \
-                                        #     f" [[[Columns: {i} {j} {k} {m}" \
-                                        #     f"Values: {i_vals_idx} {j_vals_idx} {k_vals_idx}  {m_vals_idx}" \
-                                        #     f"Fraction: {current_fraction}]]]"
                                         expl = [[obj.data_df.columns[i],
                                                  obj.data_df.columns[j],
                                                  obj.data_df.columns[k],
@@ -1678,16 +1752,12 @@ def process_inner_loop_4d(
                                                  obj._get_col_value(k, k_vals_idx),
                                                  obj._get_col_value(m, m_vals_idx)]
                                                 ]
-                                        if outliers_explanation_arr_for_i[r] == []:
+                                        if not outliers_explanation_arr_for_i[r]:
                                             outliers_explanation_arr_for_i[r] = [expl]
                                         else:
                                             outliers_explanation_arr_for_i[r].append(expl)
-                                # todo: remove try-except logic
-                                try:
-                                    local_rare_arr[i_vals_idx][j_vals_idx][k_vals_idx][m_vals_idx] = rare_value_flag
-                                except Exception as e:
-                                    print(f"here {i_vals_idx}, {j_vals_idx}, {k_vals_idx}, {m_vals_idx}")
-                rare_arr_for_i[j][k][m] = local_rare_arr
+                                local_rare_arr[i_vals_idx][j_vals_idx][k_vals_idx][m_vals_idx] = rare_value_flag
+                rare_arr_for_i[j][k][m] = local_rare_arr.copy()
     return rare_arr_for_i, outliers_4d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i
 
 
@@ -1708,9 +1778,12 @@ def process_inner_loop_5d(
     num_unique_vals_i = len(unique_vals[i])
     outliers_5d_arr_for_i = [0] * num_rows
     outliers_explanation_arr_for_i = [[]] * num_rows
-    rare_arr_for_i = [[[[[]]*num_cols]*num_cols]*num_cols]*num_cols
+    rare_arr_for_i = [[[[[]
+                         for _ in range(num_cols)]
+                        for _ in range(num_cols)]
+                       for _ in range(num_cols)]
+                      for _ in range(num_cols)]
     column_combos_checked_for_i = 0
-    max_cardinality = max([len(x) for x in unique_vals])
 
     for j in range(i+1, num_cols-3):
         num_unique_vals_j = len(unique_vals[j])
@@ -1729,8 +1802,12 @@ def process_inner_loop_5d(
 
                     # local_rare_arr represents the current set of columns. It's a 5d array, with a dimension
                     # for each value.
-                    # local_rare_arr = [[[[[False]*num_unique_vals_n]*num_unique_vals_m]*num_unique_vals_k]*num_unique_vals_j]*num_unique_vals_i
-                    local_rare_arr = [[[[[False]*max_cardinality]*max_cardinality]*max_cardinality]*max_cardinality for _ in range(max_cardinality)]
+                    local_rare_arr = [[[[[False
+                                          for _ in range(num_unique_vals_n)]
+                                         for _ in range(num_unique_vals_m)]
+                                        for _ in range(num_unique_vals_k)]
+                                       for _ in range(num_unique_vals_j)]
+                                      for _ in range(num_unique_vals_i)]
                     for i_vals_idx in range(num_unique_vals_i):
                         if rare_1d_values[i][i_vals_idx]:
                             continue
@@ -1739,10 +1816,10 @@ def process_inner_loop_5d(
                         for j_vals_idx in range(num_unique_vals_j):
                             if rare_1d_values[j][j_vals_idx]:
                                 continue
-                            j_val = unique_vals[j][j_vals_idx]
-                            cond2 = (data_np[:, j] == j_val)
                             if rare_2d_values[i][j][i_vals_idx][j_vals_idx]:
                                 continue
+                            j_val = unique_vals[j][j_vals_idx]
+                            cond2 = (data_np[:, j] == j_val)
                             for k_vals_idx in range(num_unique_vals_k):
                                 if rare_1d_values[k][k_vals_idx]:
                                     continue
@@ -1796,23 +1873,14 @@ def process_inner_loop_5d(
                                             continue
                                         if rare_4d_values[i][j][k][m][i_vals_idx][j_vals_idx][k_vals_idx][m_vals_idx]:
                                             continue
-                                        try:
-                                            if rare_4d_values[i][j][k][n][i_vals_idx][j_vals_idx][k_vals_idx][n_vals_idx]:
-                                                continue
-                                        except Exception as e:
-                                            print(f" case 2 error: {e}, indexes: {i},{j},{k},{n},{i_vals_idx},{j_vals_idx},{k_vals_idx},{n_vals_idx}")
-                                        try:
-                                            if rare_4d_values[i][j][m][n][i_vals_idx][j_vals_idx][m_vals_idx][n_vals_idx]:
-                                                continue
-                                        except Exception as e:
-                                            print(f" case 3 error: {e}, indexes: {i},{j},{m},{n},{i_vals_idx},{j_vals_idx},{m_vals_idx},{n_vals_idx}")
+                                        if rare_4d_values[i][j][k][n][i_vals_idx][j_vals_idx][k_vals_idx][n_vals_idx]:
+                                            continue
+                                        if rare_4d_values[i][j][m][n][i_vals_idx][j_vals_idx][m_vals_idx][n_vals_idx]:
+                                            continue
                                         if rare_4d_values[i][k][m][n][i_vals_idx][k_vals_idx][m_vals_idx][n_vals_idx]:
                                             continue
-                                        try:
-                                            if rare_4d_values[j][k][m][n][j_vals_idx][k_vals_idx][m_vals_idx][n_vals_idx]:
-                                                continue
-                                        except Exception as e:
-                                            print(f"case 5 error: {e}, indexes: {j},{k},{m},{n},{j_vals_idx},{k_vals_idx},{m_vals_idx},{n_vals_idx}")
+                                        if rare_4d_values[j][k][m][n][j_vals_idx][k_vals_idx][m_vals_idx][n_vals_idx]:
+                                            continue
                                         n_val = unique_vals[n][n_vals_idx]
                                         cond5 = (data_np[:, n] == n_val)
 
@@ -1820,20 +1888,27 @@ def process_inner_loop_5d(
                                         current_fraction = len(rows_all[0]) / num_rows
                                         five_d_row_nums = rows_all[0]  # todo: use less variables
 
-                                        expected_given_marginal = fractions_1d[i][i_vals_idx] * fractions_1d[j][j_vals_idx] * \
-                                                                  fractions_1d[k][k_vals_idx] * fractions_1d[m][m_vals_idx] * fractions_1d[n][n_vals_idx]
+                                        if obj.check_marginal_probs:
+                                            expected_given_marginal = \
+                                                fractions_1d[i][i_vals_idx] * \
+                                                fractions_1d[j][j_vals_idx] * \
+                                                fractions_1d[k][k_vals_idx] * \
+                                                fractions_1d[m][m_vals_idx] * \
+                                                fractions_1d[n][n_vals_idx] * \
+                                                divisor
+                                        else:
+                                            expected_given_marginal = np.inf
                                         rare_value_flag = (current_fraction < (expected_under_uniform * divisor)) and \
-                                                          (current_fraction < (expected_given_marginal * divisor)) and \
+                                                          (current_fraction < expected_given_marginal) and \
                                                           (current_fraction < 0.01)
                                         if rare_value_flag:
                                             row_nums = five_d_row_nums  # todo: can remove some variables here
                                             assert len(row_nums) == round(current_fraction * num_rows), \
-                                                f"len of matching rows: {len(row_nums)}, fraction*num_rows: current_fraction*num_rows: {current_fraction * num_rows}"
+                                                (f"len of matching rows: {len(row_nums)}, fraction*num_rows: " 
+                                                 f"current_fraction*num_rows: {current_fraction * num_rows}")
                                             for r in row_nums:
                                                 # todo: i doubt this is threadsafe
                                                 outliers_5d_arr_for_i[r] += 1
-                                                # todo: use the actual values, not their index
-                                                #outliers_explanation_arr_for_i[r] += f" [[[Columns: {i} {j} {k} {m} {n} Values: {i_vals_idx} {j_vals_idx} {k_vals_idx} {m_vals_idx} {n_vals_idx} Fraction: {current_fraction}]]]"
                                                 expl = [[obj.data_df.columns[i],
                                                          obj.data_df.columns[j],
                                                          obj.data_df.columns[k],
@@ -1845,7 +1920,7 @@ def process_inner_loop_5d(
                                                          obj._get_col_value(m, m_vals_idx),
                                                          obj._get_col_value(n, n_vals_idx)]
                                                         ]
-                                                if outliers_explanation_arr_for_i[r] == []:
+                                                if not outliers_explanation_arr_for_i[r]:
                                                     outliers_explanation_arr_for_i[r] = [expl]
                                                 else:
                                                     outliers_explanation_arr_for_i[r].append(expl)
@@ -1873,7 +1948,12 @@ def process_inner_loop_6d(
     num_unique_vals_i = len(unique_vals[i])
     outliers_6d_arr_for_i = [0] * num_rows
     outliers_explanation_arr_for_i = [[]] * num_rows
-    rare_arr_for_i = [[[[[[]]*num_cols]*num_cols]*num_cols]*num_cols]*num_cols
+    rare_arr_for_i = [[[[[[]
+                          for _ in range(num_cols)]
+                         for _ in range(num_cols)]
+                        for _ in range(num_cols)]
+                       for _ in range(num_cols)]
+                      for _ in range(num_cols)]
     column_combos_checked_for_i = 0
 
     for j in range(i+1, num_cols-4):
@@ -1887,7 +1967,9 @@ def process_inner_loop_6d(
                     for p in range(n+1, num_cols):
                         num_unique_vals_p = len(unique_vals[p])
 
-                        expected_under_uniform = 1.0 / (len(unique_vals[i]) * len(unique_vals[j]) * len(unique_vals[k]) * len(unique_vals[m]) * len(unique_vals[n]) * len(unique_vals[p]))
+                        expected_under_uniform = 1.0 / \
+                            (len(unique_vals[i]) * len(unique_vals[j]) * len(unique_vals[k]) * len(unique_vals[m]) *
+                             len(unique_vals[n]) * len(unique_vals[p]))
                         expected_count_under_uniform = num_rows * expected_under_uniform
                         if expected_count_under_uniform < 10:
                             continue
@@ -1895,7 +1977,13 @@ def process_inner_loop_6d(
 
                         # local_rare_arr represents the current set of columns. It's a 5d array, with a dimension
                         # for each value.
-                        local_rare_arr = [[[[[[False]*num_unique_vals_p]*num_unique_vals_n]*num_unique_vals_m]*num_unique_vals_k]*num_unique_vals_j]*num_unique_vals_i
+                        local_rare_arr = [[[[[[False
+                                              for _ in range(num_unique_vals_p)]
+                                             for _ in range(num_unique_vals_n)]
+                                            for _ in range(num_unique_vals_m)]
+                                           for _ in range(num_unique_vals_k)]
+                                          for _ in range(num_unique_vals_j)]
+                                         for _ in range(num_unique_vals_i)]
                         for i_vals_idx in range(num_unique_vals_i):
                             if rare_1d_values[i][i_vals_idx]:
                                 continue
@@ -1904,10 +1992,10 @@ def process_inner_loop_6d(
                             for j_vals_idx in range(num_unique_vals_j):
                                 if rare_1d_values[j][j_vals_idx]:
                                     continue
-                                j_val = unique_vals[j][j_vals_idx]
-                                cond2 = (data_np[:, j] == j_val)
                                 if rare_2d_values[i][j][i_vals_idx][j_vals_idx]:
                                     continue
+                                j_val = unique_vals[j][j_vals_idx]
+                                cond2 = (data_np[:, j] == j_val)
                                 for k_vals_idx in range(num_unique_vals_k):
                                     if rare_1d_values[k][k_vals_idx]:
                                         continue
@@ -2026,14 +2114,18 @@ def process_inner_loop_6d(
                                                 current_fraction = len(rows_all[0]) / num_rows
                                                 six_d_row_nums = rows_all[0]  # todo: use less variables
 
-                                                expected_given_marginal = fractions_1d[i][i_vals_idx] * \
-                                                                          fractions_1d[j][j_vals_idx] * \
-                                                                          fractions_1d[k][k_vals_idx] * \
-                                                                          fractions_1d[m][m_vals_idx] * \
-                                                                          fractions_1d[n][n_vals_idx] * \
-                                                                          fractions_1d[p][p_vals_idx]
+                                                if obj.check_marginal_probs:
+                                                    expected_given_marginal = fractions_1d[i][i_vals_idx] * \
+                                                                              fractions_1d[j][j_vals_idx] * \
+                                                                              fractions_1d[k][k_vals_idx] * \
+                                                                              fractions_1d[m][m_vals_idx] * \
+                                                                              fractions_1d[n][n_vals_idx] * \
+                                                                              fractions_1d[p][p_vals_idx] * \
+                                                                              divisor
+                                                else:
+                                                    expected_given_marginal = np.inf
                                                 rare_value_flag = (current_fraction < (expected_under_uniform * divisor)) and \
-                                                                  (current_fraction < (expected_given_marginal * divisor)) and \
+                                                                  (current_fraction < expected_given_marginal) and \
                                                                   (current_fraction < 0.01)
                                                 if rare_value_flag:
                                                     row_nums = six_d_row_nums  # todo: can remove some variables here
@@ -2042,8 +2134,6 @@ def process_inner_loop_6d(
                                                     for r in row_nums:
                                                         # todo: i doubt this is threadsafe
                                                         outliers_6d_arr_for_i[r] += 1
-                                                        # todo: use the actual values, not their index
-                                                        #outliers_explanation_arr_for_i[r] += f" [[[Columns: {i} {j} {k} {m} {n} {p} Values: {i_vals_idx} {j_vals_idx} {k_vals_idx} {m_vals_idx} {n_vals_idx} {p_vals_idx} Fraction: {current_fraction}]]]"
                                                         expl = [[obj.data_df.columns[i],
                                                                  obj.data_df.columns[j],
                                                                  obj.data_df.columns[k],
@@ -2055,14 +2145,14 @@ def process_inner_loop_6d(
                                                                  obj._get_col_value(k, k_vals_idx),
                                                                  obj._get_col_value(m, m_vals_idx),
                                                                  obj._get_col_value(n, n_vals_idx),
-                                                                 obj._get_col_value(n, p_vals_idx)]
+                                                                 obj._get_col_value(p, p_vals_idx)]
                                                                 ]
-                                                        if outliers_explanation_arr_for_i[r] == []:
+                                                        if not outliers_explanation_arr_for_i[r]:
                                                             outliers_explanation_arr_for_i[r] = [expl]
                                                         else:
                                                             outliers_explanation_arr_for_i[r].append(expl)
 
-                                                local_rare_arr[i_vals_idx][j_vals_idx][k_vals_idx][m_vals_idx][n_vals_idx] = rare_value_flag
+                                                local_rare_arr[i_vals_idx][j_vals_idx][k_vals_idx][m_vals_idx][n_vals_idx][p_vals_idx] = rare_value_flag
                         rare_arr_for_i[j][k][m][n][p] = local_rare_arr
     return rare_arr_for_i, outliers_6d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i
 
@@ -2077,9 +2167,10 @@ def flatten(arr):
     while True:
         if len(arr) == 0:
             return arr
-        if not any([1 if type(x) is list else 0 for x in arr]):
+        if not any(1 for x in arr if type(x) is list):
             return arr
-        arr = [i for row in arr for i in row]
+        arr = [x[0] if (type(x) is list) and (len(x) == 1)  else x for x in arr]
+        arr = tuple(i for row in arr for i in row)
 
 
 def is_float(v):
