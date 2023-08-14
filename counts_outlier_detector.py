@@ -23,6 +23,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 class CountsOutlierDetector:
     def __init__(self,
                  n_bins=7,
+                 bin_names=None,
                  max_dimensions=6,
                  threshold=0.25,
                  check_marginal_probs=False,
@@ -36,6 +37,8 @@ class CountsOutlierDetector:
         """
         :param n_bins: int
             The number of bins used to reduce numeric columns to a small set of ordinal values.
+        :param bin_names: list of strings
+            todo: fill in
         :param max_dimensions: int
             The maximum number of columns examined at any time. If set to, for example, 4, then the detector will check
             for 1d, 2d, 3d, and 4d outliers, but not outliers in higher dimensions.
@@ -74,6 +77,10 @@ class CountsOutlierDetector:
             If set True, progress messages will be displayed to indicate how far through the process the detector is.
         """
 
+        if n_bins < 2:
+            print("The minimum value for n_bins is 2. Using n_bins=2 for outlier detection.")
+            n_bins = 2
+
         if max_dimensions > 6:
             print("The maximum value for max_dimensions is 6. Using max_dimensions=6 for outlier detection.")
             max_dimensions = 6
@@ -95,6 +102,26 @@ class CountsOutlierDetector:
         self.results_name = results_name
         self.run_parallel = run_parallel
         self.verbose = verbose
+
+        # Determine the bin names. If specified as None, a default set of names will be used based on the number of
+        # bins
+        if bin_names is not None:
+            self.bin_names = bin_names
+        else:
+            if n_bins == 2:
+                self.bin_names = ['Low', 'High']
+            elif n_bins == 3:
+                self.bin_names = ['Low', 'Medium', 'High']
+            elif n_bins == 4:
+                self.bin_names = ['Low', 'Medium-Low', 'Medium-High', 'High']
+            elif n_bins == 5:
+                self.bin_names = ['Low', 'Medium-Low', 'Medium', 'Medium-High', 'High']
+            elif n_bins == 6:
+                self.bin_names = ['Very Low', 'Low', 'Medium-Low', 'Medium-High', 'High', 'Very High']
+            elif n_bins == 7:
+                self.bin_names = ['Very Low', 'Low', 'Medium-Low', 'Medium', 'Medium-High', 'High', 'Very High']
+            else:
+                self.bin_names = ['Bin ' + str(x) for x in range(n_bins)]
 
         # An array indicating the type of each column in the dataset. All columns are considered as either numeric
         # or categorical.
@@ -832,6 +859,14 @@ class CountsOutlierDetector:
 
         # Create a summary of this run, giving statistics about the outliers found
         run_summary_df = pd.DataFrame(columns=[
+            # Binary indicators giving the size of subspaces checked. These are False if there are too many
+            # combinations to check
+            'Checked_2d',
+            'Checked_3d',
+            'Checked_4d',
+            'Checked_5d',
+            'Checked_6d',
+
             'Percent Flagged as 1d',
             'Percent Flagged as 2d',
             'Percent Flagged as 3d',
@@ -845,20 +880,6 @@ class CountsOutlierDetector:
             'Percent Flagged up to 4d',
             'Percent Flagged up to 5d',
             'Percent Flagged up to 6d',
-
-            # Binary indicators giving the size of subspaces checked. These are False if there are too many
-            # combinations to check
-            'Checked_2d',
-            'Checked_3d',
-            'Checked_4d',
-            'Checked_5d',
-            'Checked_6d',
-
-            # Skip column combinations where expected count based on marginal probabilities is too low.
-            '3d column combos checked',
-            '4d column combos checked',
-            '5d column combos checked',
-            '6d column combos checked',
 
             'Percent Flagged'])
 
@@ -988,6 +1009,12 @@ class CountsOutlierDetector:
 
         # Fill in flagged_rows_df
         run_summary_df = run_summary_df.append(pd.DataFrame(np.array([[
+            checked_2d,
+            checked_3d,
+            checked_4d,
+            checked_5d,
+            checked_6d,
+
             self.flagged_rows_df['Any at 1d'].sum() * 100.0 / num_rows,
             self.flagged_rows_df['Any at 2d'].sum() * 100.0 / num_rows,
             self.flagged_rows_df['Any at 3d'].sum() * 100.0 / num_rows,
@@ -1002,15 +1029,6 @@ class CountsOutlierDetector:
             self.flagged_rows_df['Any up to 5d'].sum() * 100.0 / num_rows,
             self.flagged_rows_df['Any up to 6d'].sum() * 100.0 / num_rows,
 
-            checked_2d,
-            checked_3d,
-            checked_4d,
-            checked_5d,
-            checked_6d,
-            column_combos_checked_3d,
-            column_combos_checked_4d,
-            column_combos_checked_5d,
-            column_combos_checked_6d,
             self.flagged_rows_df['Any Scored'].sum() * 100.0 / num_rows
             ]]),
             columns=run_summary_df.columns))
@@ -1021,10 +1039,6 @@ class CountsOutlierDetector:
         run_summary_df['Checked_4d'] = run_summary_df['Checked_4d'].astype(bool)
         run_summary_df['Checked_5d'] = run_summary_df['Checked_5d'].astype(bool)
         run_summary_df['Checked_6d'] = run_summary_df['Checked_6d'].astype(bool)
-        run_summary_df['3d column combos checked'] = run_summary_df['3d column combos checked'].astype(int)
-        run_summary_df['4d column combos checked'] = run_summary_df['4d column combos checked'].astype(int)
-        run_summary_df['5d column combos checked'] = run_summary_df['5d column combos checked'].astype(int)
-        run_summary_df['6d column combos checked'] = run_summary_df['6d column combos checked'].astype(int)
 
         return create_return_dict()
 
@@ -1051,19 +1065,27 @@ class CountsOutlierDetector:
         return ret_df
 
     def plot_scores_distribution(self):
-        scores_arr = self.flagged_rows_df['TOTAL SCORE']
-        s = sns.countplot(x=scores_arr)
+        # Ensure there are no missing values on the x-axis
+        scores_arr = self.flagged_rows_df['TOTAL SCORE'].value_counts()
+        scores_counts = [(x, y) for x, y in zip(scores_arr.index, scores_arr.values)]
+        scores_missing = [(x, 0) for x in range(max(scores_arr.index)) if x not in scores_arr.index]
+        scores_counts.extend(scores_missing)
+        scores_counts = list(zip(*sorted(scores_counts, key=lambda x: x[0])))
+        s = sns.barplot(x=pd.Series(scores_counts[0]), y=pd.Series(scores_counts[1]))
+
         s.set_title("Distribution of Final Scores by Row Count")
         skip_x_ticks(s)
         plt.show()
 
-        list_scores_arr = list(filter(lambda x: x != 0, scores_arr.tolist()))
-        s = sns.countplot(x=list_scores_arr)
-        s.set_title("Distribution of Final Scores by Row Count (Excluding Zero)")
-        skip_x_ticks(s)
-        plt.show()
+        if scores_counts[0][0] == 0:
+            scores_counts[0] = scores_counts[0][1:]
+            scores_counts[1] = scores_counts[1][1:]
+            s = sns.barplot(x=pd.Series(scores_counts[0]), y=pd.Series(scores_counts[1]))
+            s.set_title("Distribution of Final Scores by Row Count (Excluding Zero)")
+            skip_x_ticks(s)
+            plt.show()
 
-        scores_arr = scores_arr.sort_values()
+        scores_arr = self.flagged_rows_df['TOTAL SCORE'].sort_values()
         s = sns.scatterplot(x=range(len(scores_arr)), y=scores_arr)
         s.set_title("Scores Sorted Lowest to Highest")
         plt.show()
@@ -1110,7 +1132,16 @@ class CountsOutlierDetector:
                               f"Row {row_index}: thick red line\n"
                               f"Bin edges in green, other flagged values in red"))
 
-                s = sns.countplot(x=self.data_df[column_name], ax=ax[1])
+                counts_arr = [len(self.data_df[self.data_df[column_name] == x]) for x in self.unique_vals[col_idx]]
+                counts_arr = [max(x, max(counts_arr)/100.0) for x in counts_arr]
+                cols = ['blue'] * len(counts_arr)
+                i = self.unique_vals[col_idx].index(int(value.replace('Bin ', '')))
+                cols[i] = 'red'
+                s = sns.barplot(
+                    x=pd.Series(self.unique_vals[col_idx]),
+                    y=pd.Series(counts_arr),
+                    palette=cols,
+                )
                 s.set_title(f"Distribution of binned values in {column_name}")
                 s.set_xlabel(f"{column_name} (binned)")
                 plt.show()
@@ -1158,6 +1189,7 @@ class CountsOutlierDetector:
                 orig_cmap = matplotlib.cm.RdBu
                 if self.shifted_cmap is None:
                     self.shifted_cmap = shiftedColorMap(orig_cmap, midpoint=0.05, name='shifted')
+                fig, ax = plt.subplots(figsize=(max(5, len(unique_vals_1) * 0.6), max(4, len(unique_vals_2) * 0.3)))
                 s = sns.heatmap(
                     data=counts_df,
                     annot=True,
@@ -1198,6 +1230,8 @@ class CountsOutlierDetector:
                 s.set_title(f"Distribution of Values in Columns\n{column_name_1} and \n{column_name_2}")
                 s.set_xlabel(column_name_1)
                 s.set_ylabel(column_name_2)
+                if len("".join([x.get_text() for x in s.get_xticklabels()])) > 20:
+                    plt.xticks(rotation=70)
                 plt.show()
 
             # If both columns are numeric, display a scatter plot and a heatmap of the bins
@@ -1293,12 +1327,6 @@ class CountsOutlierDetector:
                 for _, spine in s.spines.items():
                     spine.set_visible(True)
 
-                # Draw the current row as a star
-                s = sns.scatterplot(
-                    x=[(orig_value_1 - xlim[0]) / (xlim[1] - xlim[0]) * (heatmap_xlim[1] - heatmap_xlim[0])],
-                    y=[(orig_value_2 - ylim[1]) / (ylim[0] - ylim[1]) * (heatmap_ylim[0] - heatmap_ylim[1])],
-                    color='yellow', marker='*', s=150, ax=ax[1])
-
                 # Highlight the cell for the current row
                 cell_x = -1
                 for bin_idx in range(len(self.bin_edges[numeric_col_idx_1])):
@@ -1311,6 +1339,12 @@ class CountsOutlierDetector:
                         cell_y = self.n_bins - bin_j - 1
                         break
                 s.add_patch(Rectangle((cell_x, cell_y), 1, 1, fill=False, edgecolor='blue', lw=3))
+
+                # Draw the current row as a star
+                s = sns.scatterplot(
+                    x=[(orig_value_1 - xlim[0]) / (xlim[1] - xlim[0]) * (heatmap_xlim[1] - heatmap_xlim[0])],
+                    y=[(orig_value_2 - ylim[1]) / (ylim[0] - ylim[1]) * (heatmap_ylim[0] - heatmap_ylim[1])],
+                    color='yellow', marker='*', s=150, zorder=np.inf, ax=ax[1])
 
                 s.set_xlabel(f'{column_name_1}\nRow {row_index} represented as star')
 
@@ -1421,6 +1455,58 @@ class CountsOutlierDetector:
                         return
                     print_outlier_multi_d(expl)
 
+    def explain_features(self, features_arr):
+        """
+        Display the counts for each combination of values within a specified set of columns. This would typically be
+        called to follow up a call to explain_row(), where a set of 3 or more features were identified with at least
+        one unusual combination of values.
+
+        :param features_arr: list of strings
+            A list of features within the dataset
+
+        :return: None
+        """
+
+        for column_name in features_arr:
+            if column_name not in self.orig_df.columns:
+                print(f"{column_name} not in the dataframe used for outlier detection.")
+                return
+            if column_name not in self.data_df.columns:
+                print(f"{column_name} was not used for outlier detection.")
+                return
+
+        vals_arr = []
+        for col_name in features_arr:
+            col_idx = self.data_df.columns.tolist().index(col_name)
+            vals_arr.append(self.unique_vals[col_idx])
+        combinations_arr = list(itertools.product(*vals_arr))
+
+        # Get the counts of each combination
+        counts_arr = []
+        for combination in combinations_arr:
+            col_idx_arr = []
+            cond = [True] * len(self.data_df)
+            for idx in range(len(features_arr)):
+                col_name = features_arr[idx]
+                col_idx = self.data_df.columns.tolist().index(col_name)
+                col_idx_arr.append(col_idx)
+                cond = cond & (self.data_np[:, col_idx] == combination[idx])
+            rows_all = np.where(cond)[0]
+            if len(rows_all):
+                row = []
+                for c_idx, c in enumerate(combination):
+                    row.append(self._get_col_value(col_idx_arr[c_idx], c))
+                row.append(len(rows_all))
+                counts_arr.append(row)
+
+        # Display the counts
+        counts_df = pd.DataFrame(counts_arr, columns=features_arr + ['Count'])
+        counts_df = counts_df.sort_values('Count', ascending=False)
+        if is_notebook():
+            display(counts_df)
+        else:
+            print(counts_df)
+
     def __output_explanations(self):
         """
         Given self.flagged_rows_df, a dataframe with the full information about flagged rows, return a smaller, simpler
@@ -1463,20 +1549,21 @@ class CountsOutlierDetector:
             if not is_numeric:
                 col_types_arr[col_idx] = 'C'
             # Even where the values are numeric, if there are few of them, consider them categorical, though if the
-            # values are all float, the column will be cast to 'N' when collecting the unique values.
-            if num_unique <= self.n_bins:
+            # values are all float, the column will be cast to 'N' when collecting the unique values. We want at
+            # least, on average, 2 values per bin.
+            if num_unique <= (2 * self.n_bins):
                 col_types_arr[col_idx] = 'C'
 
-        # If there are a large number of categorical columns, re-determine the types with a more strict cutoff
-        if col_types_arr.count('C') > 50:
-            col_types_arr = ['N'] * len(self.data_df.columns)
-            for col_idx, col_name in enumerate(self.data_df.columns):
-                num_unique = self.data_df[col_name].nunique()
-                is_numeric = self.__get_is_numeric(col_name)
-                if not is_numeric:
-                    col_types_arr[col_idx] = 'C'
-                if num_unique <= min(5, self.n_bins):
-                    col_types_arr[col_idx] = 'C'
+        # # If there are a large number of categorical columns, re-determine the types with a more strict cutoff
+        # if col_types_arr.count('C') > 50:
+        #     col_types_arr = ['N'] * len(self.data_df.columns)
+        #     for col_idx, col_name in enumerate(self.data_df.columns):
+        #         num_unique = self.data_df[col_name].nunique()
+        #         is_numeric = self.__get_is_numeric(col_name)
+        #         if not is_numeric:
+        #             col_types_arr[col_idx] = 'C'
+        #         if num_unique <= min(5, self.n_bins):
+        #             col_types_arr[col_idx] = 'C'
 
         # Ensure any numeric columns are stored in integer or float format
         for col_idx, col_name in enumerate(self.data_df.columns):
@@ -1511,7 +1598,7 @@ class CountsOutlierDetector:
         if self.col_types_arr[col_idx] == "C":
             return self.ordinal_encoders_arr[col_idx].inverse_transform([[value_idx]])[0][0]
         else:
-            return f"Bin {value_idx}"
+            return self.bin_names[value_idx]
 
     def __get_num_combinations(self, dim, num_cols_processed=None):
         avg_num_unique_vals = mean([len(x) for x in self.unique_vals])
