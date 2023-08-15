@@ -67,7 +67,7 @@ This detector has the advantages of:
  
 This project in an attempt to demonstrate, and provide a working example, that outlier detection can be completely transparent, and though optimized outlier detectors are also very useful, there is a clear utility in interpretable outlier detection. 
 
-# Example
+## Example
 
 ```python
 import pandas as pd
@@ -81,10 +81,198 @@ results = det.predict(X)
 
 The 4 returned pandas dataframes and strings provide information about what rows where flagged and why, as well as summary statistics about the dataset's outliers as a whole. 
 
-# API
+## API
+
+### CountsOutlierDetector
+```python
+CountsOutlierDetector(
+             n_bins=7,
+             bin_names=None,
+             max_dimensions=3,
+             threshold=0.05,
+             check_marginal_probs=False,
+             max_num_combinations=100_000,
+             min_values_per_column=2,
+             max_values_per_column=25,
+             results_folder="",
+             results_name="",
+             run_parallel=False,
+             verbose=False)
+```
+
+**n_bins**: int
+
+The number of bins used to reduce numeric columns to a small set of ordinal values.
+        
+**bin_names**: list of strings
+            
+List of provided bin names. If set to None, a default set of names will be used. Suitable to specify where a small number of bins are used and the defaults are not appropriate, for example, where non-English names should be used.
+
+**max_dimension**s: int
+
+The maximum number of columns examined at any time. If set to, for example, 4, then the detector will check for 1d, 2d, 3d, and 4d outliers, but not outliers in higher dimensions.
+            
+**threshold**: float
+        
+Used to determine which values or combinations of values are considered rare. Any set of values that has a count less than threshold * the expected count under a uniform distribution are flagged as outliers. For example, if considering a set of three columns, if the cardinalities are 4, 8, and 3, then there are 4*8*3=96 potential combinations. If there are 10,000 rows, we would expect (under a uniform distribution)
+            10000/96 = 104.16 rows in each combination. If threshold is set to 0.25, we flag any combinations that have
+            less than 104.16 * 0.25 = 26 rows. When threshold is set to a very low value, only very unusual values and
+            combinations of values will be flagged. When set to a higher value, many more will be flagged, and rows
+            will be differentiated more by their total scores than if they have any extreme anomalies.
+            
+**check_marginal_probs**: bool
+
+If set true, values will be flagged only if they are both rare and rare given the marginal probabilities of
+            the relevant feature values.  
+            
+**max_num_combinations**: int
+        
+This, as well as max_dimensions, determines the maximum number of dimensions that may be examined at a time.
+            When determining if the detector considers, for example, 3d outliers, it examines the number of columns and
+            average number of unique values per column and estimates the total number of combinations. If this exceeds
+            max_num_combinations, the detector will not consider spaces of this dimensionality or higher. This parameter
+            may be set to reduce the time or memory required or to limit the flagged values to lower dimensions for
+            greater interpretability. It may also be set higher to help identify more outliers where desired.
+            
+**min_values_per_column**: int
+        
+The detector excludes from examination any columns with less than this number of unique values
+            
+**max_values_per_column**: int
+        
+The detector excludes from examination any columns with more than this number of unique values
+            
+**results_folder**: string
+        
+If specified, the output will be written to a .csv file in this folder. If unspecified,  no output file will
+            be written. Required if results_name is specified.
+            
+**results_name**: string
+        
+Optional text to be included in the names of the output files, if created. The output file  names will also
+            include the date and time, to allow multiple to be created without over-writing previous output files.
+            
+**run_parallel**: bool
+        
+If set True, the process will execute in parallel, typically allowing some performance gain.
+            
+**verbose**:
+        
+If set True, progress messages will be displayed to indicate how far through the process the detector is.
 
 
-# Example Notebooks
+&nbsp;&nbsp;
+
+### predict()
+```python
+predict(input_data)
+```
+This is the main API. This determines the outlier score of all rows in the data.
+
+**input_data**: pandas dataframe, or data structure that may be converted to a pandas dataframe, such as
+            numpy array, 2d python array, or dictionary
+
+**Return**: dictionary
+            
+Returns a dictionary with the following elements:
+
+'Scores': list
+
+An array with an element for each row in the dataset. This is the detector's estimate of the
+    outlierness of each row.
+
+'Breakdown All Rows': pandas dataframe
+
+This contains a row for each row in the original data, along with columns indicating the number of times
+    each row was flagged based on 1d, 2d, 3d,... tests. A short explanation of each is also provided
+    giving the columns, values (or bin number), and the fraction of rows having this combination. This is
+    not intended to be readable, as is useful only for further analysis of the outliers.
+
+'Breakdown Flagged Rows': pandas dataframe
+    
+This is a condensed form of the above dataframe, including only the rows flagged at least once, and
+    only the relevant columns.
+
+'Flagged Summary': pandas dataframe
+
+This provides a high level view of the numbers of values, or combinations of values, flagged in 1d,
+    2d, 3d... spaces, as well as the number of dimensions checked.
+
+&nbsp;&nbsp;
+
+### get_most_flagged_rows
+
+```python
+get_most_flagged_rows()
+```
+
+This is used to get the rows from the original data with the highest total scores.
+
+Parameters: None
+
+**returns**: pandas dataframe
+
+This returns a dataframe with the set of rows matching all rows from the original data that received any
+            non-zero score, ordered from highest score to lowest. This has the full set of columns from the original
+            data as well as a SCORE column indicating the total score of the column
+
+&nbsp;&nbsp;
+
+### plot_scores_distribution
+```python
+plot_scores_distribution()
+```
+
+This presents three plots. The first two are bar plots providing the count of each score, the second with scores of zero omitted. The third presents this as a rank plot. This allows determining if there are any distinctions between low and high-scoring flagged rows, such that beyond some score flagged rows may be particularly considered as outliers. 
+
+Parameters: None
+
+Return Values: None
+
+&nbsp;&nbsp;
+
+### print_run_summary
+```python
+print_run_summary()
+```
+This prints a string summary of the execution of the detection process, describing the anomalies found in each dimensionality. 
+
+&nbsp;&nbsp;
+
+### explain_row
+``` python
+explain_row(row_index, max_plots=50)
+```
+
+This provides an explanation for a single row, in the form of plots. One or more plots will be drawn for each anomaly found in the row. Where anomalies were found in 1d, these will be displayed as a bar plot. Any in 2d will be displayed as a scatter plot, heatmap, or strip plot depending if the features were categorical or numeric. Any in three or more dimensions will be displayed as a bar plot or histogram. 
+
+**row_index**: int
+
+Row index (zero-based) of the row for which this will provide an explanation. The relevant rows can be found by first calling get_most_flagged_rows()
+
+**max_plots**: int
+
+The maximum number of plots which can be displayed. In some cases, rows may be flagged in many different ways, and plotting all is unnecessary. 
+
+&nbsp;&nbsp;
+
+### explain_features
+``` python
+explain_features(self, features_arr)
+```
+Display the counts for each combination of values within a specified set of columns. This would typically be
+        called to follow up a call to explain_row(), where a set of 3 or more features were identified with at least
+        one unusual combination of values.
+
+**features_arr**: list of strings
+
+A list of features within the dataset
+
+**Returns**: None
+
+&nbsp;&nbsp;
+
+## Example Notebooks
 
 **Simple Example Notebook**
 The (simple example)[] notebook provides some simple examples, using synthetic data and some toy datasets from sklearn. 
@@ -102,6 +290,10 @@ The (evaluation)[] notebook uses a large and random set of datasets from OpenML,
 
 **Compare Dimensionalities Notebook**
 The (compare dimensionalities)[] notebook examines how many outliers tend to be found in higher-dimensional spaces than lower-dimensional spaces. This establishes that, while examining higher dimensional spaces is often useful, on the whole, most outliers can be detected considering only up to two or three dimensions. In fact, the (hyperparameter tuning notebook)[]
+
+Many datasets just don't have outliers. Of the 78? checked, only one has any at 6d, though it has many. 
+
+As expected, the patterns are quite different from one dataset to another. 
 
 Old:
 [Example Counts Outlier Detector](https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/examples/Examples_Counts_Outlier_Detector.ipynb) 
