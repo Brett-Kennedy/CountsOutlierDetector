@@ -81,6 +81,36 @@ results = det.predict(X)
 
 The 4 returned pandas dataframes and strings provide information about what rows where flagged and why, as well as summary statistics about the dataset's outliers as a whole. 
 
+## Example Notebooks
+
+**Simple Example Notebook**
+
+The [simple example](https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/examples/Examples_Counts_Outlier_Detector.ipynb) notebook provides some simple examples, using synthetic data and some toy datasets from sklearn. 
+
+**OpenML Demo Notebook**
+
+The [OpenML demo](https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/examples/demo_OpenML.ipynb) notebook provides an example detecting outliers in a real dataset from OpenML. This provides an example of examining the outliers identified by the detector.
+
+**Tuning Hyperparameters Notebook**
+
+The [hyperparameter tuning notebook](https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/examples/tune_hyperparameters.ipynb) notebook uses a set of datasets from OpenML (a set not used elsewhere) to identify what are generally the optimum hyperparameters for CountOutlierDetector, considering the three most relevant to performance and execution time: number of bins, maximum number of dimensions, and threshould. This confirms the default hyperparameters are typically strong. This uses a doping method to randomly modify real datasets such that the modified rows are known to be likely more anomalous than the non-modified rows. Specifically, this uses a technique of calculating the outlier scores on both the original and modified versions of each dataset and examining the increases in outlier scores. Where CountsOutlierDetector is well-behaving, the increases will correlate well with the modifications made in the doping process. Doing this allows us to determine where the hyperparameters best allow the detector to identify the modified rows. 
+
+This takes some time to execute, as it tests several combinations of hyperparameters per dataset.
+
+**Evaluation Notebook**
+
+The [evaluation](https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/examples/evaluate_using_doping.ipynb) notebook uses a large and random set of datasets from OpenML, distinct from those used in the Tuning notebook, to compare the accuracy of CountsOutlierDetector to IsolationForest, a standard and well-established outlier detector. Both used default parameters. Overall, CountsOutlierDetector is quite competitive, out-performing IsolationForest in two of the three metrics used. While somewhat slower than IsolationForest, CountsOutlierDetector also performed well with respect to execution time. The main difference is CountsOutlierDetector is fully interpretable.
+
+**Compare Dimensionalities Notebook**
+
+The [compare dimensionalities](https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/examples/compare_dimensions.ipynb) notebook examines how many outliers tend to be found in higher-dimensional spaces than lower-dimensional spaces. This establishes that, while examining higher dimensional spaces is often useful, on the whole, most outliers can be detected considering only up to two or three dimensions. In fact, the (hyperparameter tuning notebook)[]
+
+Many datasets just don't have outliers. Of the 78? checked, only one has any at 6d, though it has many. 
+
+As expected, the patterns are quite different from one dataset to another. 
+
+
+
 ## API
 
 ### CountsOutlierDetector
@@ -271,66 +301,4 @@ A list of features within the dataset
 **Returns**: None
 
 &nbsp;&nbsp;
-
-## Example Notebooks
-
-**Simple Example Notebook**
-The (simple example)[] notebook provides some simple examples, using synthetic data and some toy datasets from sklearn. 
-
-**OpenML Demo Notebook**
-The (OpenML demo)[] notebook provides an example detecting outliers in a real dataset from OpenML. This provides an example of examining the outliers identified by the detector.
-
-**Tuning Hyperparameters Notebook**
-The (hyperparameter tuning notebook)[] notebook uses a set of datasets from OpenML (a set not used elsewhere) to identify what are generally the optimum hyperparameters for CountOutlierDetector, considering the three most relevant to performance and execution time: number of bins, maximum number of dimensions, and threshould. This confirms the default hyperparameters are typically strong. This uses a doping method to randomly modify real datasets such that the modified rows are known to be likely more anomalous than the non-modified rows. Specifically, this uses a technique of calculating the outlier scores on both the original and modified versions of each dataset and examining the increases in outlier scores. Where CountsOutlierDetector is well-behaving, the increases will correlate well with the modifications made in the doping process. Doing this allows us to determine where the hyperparameters best allow the detector to identify the modified rows. 
-
-This takes some time to execute, as it tests several combinations of hyperparameters per dataset.
-
-**Evaluation Notebook**
-The (evaluation)[] notebook uses a large and random set of datasets from OpenML, distinct from those used in the Tuning notebook, to compare the accuracy of CountsOutlierDetector to IsolationForest, a standard and well-established outlier detector. Both used default parameters. Overall, CountsOutlierDetector is quite competitive, out-performing IsolationForest in two of the three metrics used. While somewhat slower than IsolationForest, CountsOutlierDetector also performed well with respect to execution time. The main difference is CountsOutlierDetector is fully interpretable.
-
-**Compare Dimensionalities Notebook**
-The (compare dimensionalities)[] notebook examines how many outliers tend to be found in higher-dimensional spaces than lower-dimensional spaces. This establishes that, while examining higher dimensional spaces is often useful, on the whole, most outliers can be detected considering only up to two or three dimensions. In fact, the (hyperparameter tuning notebook)[]
-
-Many datasets just don't have outliers. Of the 78? checked, only one has any at 6d, though it has many. 
-
-As expected, the patterns are quite different from one dataset to another. 
-
-Old:
-[Example Counts Outlier Detector](https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/examples/Examples_Counts_Outlier_Detector.ipynb) 
-
-This is a simple notebook providing some examples of use of the detector. It includes examples with synthetic and real data.
-
-[Tests Counts Outlier Detector](https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/examples/Test_CountsOutlierDetector.py) 
-
-This is a python file that tests the outlier detector over a large number of random datasets (100 by default). This uses the [DatasetsEvaluator](https://github.com/Brett-Kennedy/DatasetsEvaluator) tool to aid with collecting and filtering datasets from openml.org. Some results from the execution of this are included below.
-
-# Statistics 
-
-### Percents of Datasets Checked at Each Dimension
-We ran CountsOutlierDetector on 100 random datasets collected from openml.org, allowing it to run on up to six dimensions, but limiting the estimated number of value combinations (given the number of columns considered and average cardinality of each column) to 100 million. This excluded most datasets from considering 5d and 6d outliers, and a small number of datasets from examining even 3d outliers.
-
-<img src="https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/Results/percent_datasets_checked_by_dim_bar.png" alt="drawing" width="650"/>
-
-13 out of the 100 did, given these settings, examine datasets for up to 6d outliers. 
-
-### Counts by Dimension 
-<img src="https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/Results/counts_by_dim_bar.png" alt="drawing" width="650"/>
-
-This is based on testing 100 random datasets for outliers, up to 6d outliers. This indicates the % of rows flagged as each type of outlier. For most datasets, the 3d tests tend to flag the most rows, with a sharp drop off after that. In this case almost none of the 100 datasets flagged any 6d outliers, though the detector was set to avoid excessive calculations, so datasets skipped the tests for higher dimensions (see plot below for the number of datasets tested up to each dimensionality). Note: many rows were flagged as 1d/2d/3d/4d or 5d outliers multiple times, and so, to some extent, these bars count the same rows.
-
-| Dimension | Avg % Rows Flagged |
-| ------- | ---------- |
-| 1 | 7.64 |
-| 2 |  12.16 |
-| 3 | 15.90 |
-| 4 | 5.24 |
-| 5 | 0.11 |
-| 6 | 0.15 |
-
-Even where 5d and 6d spaces are explored, they tend to find very few outliers. 
-
-### Cumulative Counts by Dimension
-<img src="https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/Results/counts_up_to_dim_bar.png" alt="drawing" width="650"/>
-
-This is a cumulative count of the same information, indicating what percent of rows (averaged over 100 datasets) are flagged as outliers when examining up to each number of dimensions. This indicates that even at 1d, 2d, or 3d, it is often the case that more rows have been flagged than can be realistically investigated in any case, and while checking higher dimensions, is slower and less interpretable, it will likely discover few additional outliers on top of an already-sufficient result set. However, exceptions do occur.
 
