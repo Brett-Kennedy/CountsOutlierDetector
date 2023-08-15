@@ -24,8 +24,8 @@ class CountsOutlierDetector:
     def __init__(self,
                  n_bins=7,
                  bin_names=None,
-                 max_dimensions=6,
-                 threshold=0.25,
+                 max_dimensions=3,
+                 threshold=0.05,
                  check_marginal_probs=False,
                  max_num_combinations=100_000,
                  min_values_per_column=2,
@@ -106,6 +106,9 @@ class CountsOutlierDetector:
         # Determine the bin names. If specified as None, a default set of names will be used based on the number of
         # bins
         if bin_names is not None:
+            if len(bin_names) != n_bins:
+                print("The number of bin names must match n_bins")
+                return
             self.bin_names = bin_names
         else:
             if n_bins == 2:
@@ -192,6 +195,9 @@ class CountsOutlierDetector:
 
         :return: dictionary
             Returns a dictionary with the following elements:
+
+            'Scores: list
+                todo: fill in
 
             'Breakdown All Rows': pandas dataframe
                 This contains a row for each row in the original data, along with columns indicating the number of times
@@ -790,6 +796,7 @@ class CountsOutlierDetector:
 
         def create_return_dict():
             return {
+                'Scores': self.flagged_rows_df['TOTAL SCORE'],
                 'Breakdown All Rows': self.flagged_rows_df,
                 'Breakdown Flagged Rows': self.__output_explanations(),
                 'Flagged Summary': run_summary_df
@@ -808,7 +815,7 @@ class CountsOutlierDetector:
         self.orig_df.columns = [str(x) for x in self.orig_df.columns]
         self.data_df.columns = [str(x) for x in self.data_df.columns]
 
-        # Create a list of the numeric columns
+        # Get the column types and create a list of the numeric columns
         self.col_types_arr = self.__get_col_types_arr()
         self.numeric_col_names = [self.data_df.columns[x]
                                   for x in range(len(self.col_types_arr)) if self.col_types_arr[x] == 'N']
@@ -835,14 +842,13 @@ class CountsOutlierDetector:
             else:
                 self.data_df[col_name] = self.data_df[col_name].fillna(self.data_df[col_name].median())
 
-        # Fill any infinite values with the column maximum, and negative infinite with the minimum
+        # Fill any infinite values with the column maximum, and negative infinite values with the minimum
         for col_idx, col_name in enumerate(self.data_df.columns):
             if self.col_types_arr[col_idx] == 'N':
                 self.data_df[col_name] = self.data_df[col_name].replace(-np.inf, self.data_df[col_name].min())
                 self.data_df[col_name] = self.data_df[col_name].replace(np.inf, self.data_df[col_name].max())
 
         # Bin any numeric columns
-        # todo: test with k-means as the strategy
         est = KBinsDiscretizer(n_bins=self.n_bins, encode='ordinal', strategy='uniform')
         if len(self.numeric_col_names):
             x_num = self.data_df[self.numeric_col_names]
@@ -897,92 +903,95 @@ class CountsOutlierDetector:
         # Determine the 1d stats
         fractions_1d, rare_1d_values, outliers_1d_arr, explanations_1d_arr = get_1d_stats()
         self.rare_1d_values = rare_1d_values
+        self.dimensions_examined = 1
 
         # Determine the 2d stats
-        self.dimensions_examined = 1
         checked_2d = False
-        num_combinations = self.__get_num_combinations(dim=2)
-        if num_combinations > self.max_num_combinations:
-            self.run_summary += (
-                f"\n\nCannot determine 2d outliers given the number of columns ({num_cols}) and number of unique "
-                f"values in each. Estimated number of combinations: {round(num_combinations):,}")
-            outliers_2d_arr = [0] * num_rows
-            explanations_2d_arr = [""] * num_rows
-        else:
-            fractions_2d, rare_2d_values, outliers_2d_arr, explanations_2d_arr = get_2d_stats()
-            checked_2d = True
-            self.rare_2d_values = rare_2d_values
-            self.dimensions_examined = 2
+        outliers_2d_arr = [0] * num_rows
+        explanations_2d_arr = [""] * num_rows
+        if self.max_dimensions >= 2:
+            num_combinations = self.__get_num_combinations(dim=2)
+            if num_combinations > self.max_num_combinations:
+                self.run_summary += (
+                    f"\n\nCannot determine 2d outliers given the number of columns ({num_cols}) and number of unique "
+                    f"values in each. Estimated number of combinations: {round(num_combinations):,}")
+            else:
+                fractions_2d, rare_2d_values, outliers_2d_arr, explanations_2d_arr = get_2d_stats()
+                checked_2d = True
+                self.rare_2d_values = rare_2d_values
+                self.dimensions_examined = 2
 
         # Determine the 3d stats unless there are too many columns and unique values to do so efficiently
         checked_3d = False
-        column_combos_checked_3d = -1
-        num_combinations = self.__get_num_combinations(dim=3)
-        if num_combinations > self.max_num_combinations:
-            self.run_summary += (
-                f"\n\nCannot determine 3d outliers given the number of columns ({num_cols}) and number of unique "
-                f"values in each. Estimated number of combinations: {round(num_combinations):,}")
-            outliers_3d_arr = [0] * num_rows
-            explanations_3d_arr = [""] * num_rows
-        else:
-            fractions_3d, rare_3d_values, outliers_3d_arr, explanations_3d_arr, column_combos_checked_3d = \
-                get_3d_stats(num_combinations=num_combinations)
-            checked_3d = True
-            self.dimensions_examined = 3
+        outliers_3d_arr = [0] * num_rows
+        explanations_3d_arr = [""] * num_rows
+        if self.max_dimensions >= 3:
+            num_combinations = self.__get_num_combinations(dim=3)
+            if num_cols < 3:
+                self.run_summary += f"\n\nCannot determine 3d outliers. Too few columns: {num_cols}."
+            if num_combinations > self.max_num_combinations:
+                self.run_summary += (
+                    f"\n\nCannot determine 3d outliers given the number of columns ({num_cols}) and number of unique "
+                    f"values in each. Estimated number of combinations: {round(num_combinations):,}")
+            else:
+                fractions_3d, rare_3d_values, outliers_3d_arr, explanations_3d_arr, column_combos_checked_3d = \
+                    get_3d_stats(num_combinations=num_combinations)
+                checked_3d = True
+                self.dimensions_examined = 3
 
         # Determine the 4d stats unless there are too many columns and unique values to do so efficiently
         checked_4d = False
-        column_combos_checked_4d = -1
-        num_combinations = self.__get_num_combinations(dim=4)
         outliers_4d_arr = [0] * num_rows
         explanations_4d_arr = [""] * num_rows
-        if num_cols < 4:
-            self.run_summary += f"\n\nCannot determine 4d outliers. Too few columns: {num_cols}."  # todo: these are printing before the output for 1d, 2d, 3d
-        elif num_combinations > self.max_num_combinations:
-            self.run_summary += \
-                (f"\n\nCannot determine 4d outliers given the number of columns ({num_cols}) and number of unique "
-                 f"values in each. Estimated number of combinations: {round(num_combinations):,}")
-        else:
-            fractions_4d, rare_4d_values, outliers_4d_arr, explanations_4d_arr, column_combos_checked_4d = \
-                get_4d_stats(num_combinations=num_combinations)
-            checked_4d = True
-            self.dimensions_examined = 4
+        if self.max_dimensions >= 4:
+            num_combinations = self.__get_num_combinations(dim=4)
+            if num_cols < 4:
+                self.run_summary += f"\n\nCannot determine 4d outliers. Too few columns: {num_cols}."
+            elif num_combinations > self.max_num_combinations:
+                self.run_summary += \
+                    (f"\n\nCannot determine 4d outliers given the number of columns ({num_cols}) and number of unique "
+                     f"values in each. Estimated number of combinations: {round(num_combinations):,}")
+            else:
+                fractions_4d, rare_4d_values, outliers_4d_arr, explanations_4d_arr, column_combos_checked_4d = \
+                    get_4d_stats(num_combinations=num_combinations)
+                checked_4d = True
+                self.dimensions_examined = 4
 
         # Determine the 5d stats unless there are too many columns and unique values to do so efficiently
         checked_5d = False
-        column_combos_checked_5d = -1
-        num_combinations = self.__get_num_combinations(dim=5)
         outliers_5d_arr = [0] * num_rows
         explanations_5d_arr = [""] * num_rows
-        if num_cols < 5:
-            self.run_summary += f"\n\nCannot determine 5d outliers. Too few columns: {num_cols}."  # todo: these are printing before the output for 1d, 2d, 3d
-        elif num_combinations > self.max_num_combinations:
-            self.run_summary += (
-                f"\n\nCannot determine 5d outliers given the number of columns ({num_cols}) and number of unique "
-                f"values in each. Estimated number of combinations: {round(num_combinations):,}")
-        else:
-            fractions_5d, rare_5d_values, outliers_5d_arr, explanations_5d_arr, column_combos_checked_5d = \
-                get_5d_stats(num_combinations=num_combinations)
-            checked_5d = True
-            self.dimensions_examined = 5
+        if self.max_dimensions >= 5:
+            num_combinations = self.__get_num_combinations(dim=5)
+            if num_cols < 5:
+                self.run_summary += f"\n\nCannot determine 5d outliers. Too few columns: {num_cols}."  # todo: these are printing before the output for 1d, 2d, 3d
+            elif num_combinations > self.max_num_combinations:
+                self.run_summary += (
+                    f"\n\nCannot determine 5d outliers given the number of columns ({num_cols}) and number of unique "
+                    f"values in each. Estimated number of combinations: {round(num_combinations):,}")
+            else:
+                fractions_5d, rare_5d_values, outliers_5d_arr, explanations_5d_arr, column_combos_checked_5d = \
+                    get_5d_stats(num_combinations=num_combinations)
+                checked_5d = True
+                self.dimensions_examined = 5
 
         # Determine the 6d stats unless there are too many columns and unique values to do so efficiently
         checked_6d = False
-        column_combos_checked_6d = -1
-        num_combinations = self.__get_num_combinations(dim=6)
         outliers_6d_arr = [0] * num_rows
         explanations_6d_arr = [""] * num_rows
-        if num_cols < 6:
-            self.run_summary += f"\n\nCannot determine 6d outliers. Too few columns: {num_cols}."  # todo: these are printing before the output for 1d, 2d, 3d
-        elif num_combinations > self.max_num_combinations:
-            self.run_summary += (
-                f"\n\nCannot determine 6d outliers given the number of columns ({num_cols}) and number of unique "
-                f"values in each. Estimated number of combinations: {round(num_combinations):,}")
-        else:
-            fractions_6d, rare_6d_values, outliers_6d_arr, explanations_6d_arr, column_combos_checked_6d = \
-                get_6d_stats(num_combinations=num_combinations)
-            checked_6d = True
-            self.dimensions_examined = 6
+        if self.max_dimensions >= 6:
+            num_combinations = self.__get_num_combinations(dim=6)
+            if num_cols < 6:
+                self.run_summary += f"\n\nCannot determine 6d outliers. Too few columns: {num_cols}."  # todo: these are printing before the output for 1d, 2d, 3d
+            elif num_combinations > self.max_num_combinations:
+                self.run_summary += (
+                    f"\n\nCannot determine 6d outliers given the number of columns ({num_cols}) and number of unique "
+                    f"values in each. Estimated number of combinations: {round(num_combinations):,}")
+            else:
+                fractions_6d, rare_6d_values, outliers_6d_arr, explanations_6d_arr, column_combos_checked_6d = \
+                    get_6d_stats(num_combinations=num_combinations)
+                checked_6d = True
+                self.dimensions_examined = 6
 
         # Create the self.flagged_rows_df dataframe and, if specified, save to disk
         self.flagged_rows_df = create_output_csv(
@@ -2256,7 +2265,7 @@ def flatten(arr):
             return arr
         if not any(1 for x in arr if type(x) is list):
             return arr
-        arr = [x[0] if (type(x) is list) and (len(x) == 1)  else x for x in arr]
+        #arr = [x[0] if (type(x) is list) and (len(x) == 1) else x for x in arr]
         arr = tuple(i for row in arr for i in row)
 
 
