@@ -76,12 +76,34 @@ from sklearn.datasets import load_iris
 iris = load_iris()
 X, y = iris.data, iris.target
 det = CountsOutlierDetector()
-flagged_rows_df, row_explanations, output_msg, run_summary_df = det.predict(X)
+results = det.predict(X)
 ```
 
 The 4 returned pandas dataframes and strings provide information about what rows where flagged and why, as well as summary statistics about the dataset's outliers as a whole. 
 
-# Example Files
+# API
+
+
+# Example Notebooks
+
+**Simple Example Notebook**
+The (simple example)[] notebook provides some simple examples, using synthetic data and some toy datasets from sklearn. 
+
+**OpenML Demo Notebook**
+The (OpenML demo)[] notebook provides an example detecting outliers in a real dataset from OpenML. This provides an example of examining the outliers identified by the detector.
+
+**Tuning Hyperparameters Notebook**
+The (hyperparameter tuning notebook)[] notebook uses a set of datasets from OpenML (a set not used elsewhere) to identify what are generally the optimum hyperparameters for CountOutlierDetector, considering the three most relevant to performance and execution time: number of bins, maximum number of dimensions, and threshould. This confirms the default hyperparameters are typically strong. This uses a doping method to randomly modify real datasets such that the modified rows are known to be likely more anomalous than the non-modified rows. Specifically, this uses a technique of calculating the outlier scores on both the original and modified versions of each dataset and examining the increases in outlier scores. Where CountsOutlierDetector is well-behaving, the increases will correlate well with the modifications made in the doping process. Doing this allows us to determine where the hyperparameters best allow the detector to identify the modified rows. 
+
+This takes some time to execute, as it tests several combinations of hyperparameters per dataset.
+
+**Evaluation Notebook**
+The (evaluation)[] notebook uses a large and random set of datasets from OpenML, distinct from those used in the Tuning notebook, to compare the accuracy of CountsOutlierDetector to IsolationForest, a standard and well-established outlier detector. Both used default parameters. Overall, CountsOutlierDetector is quite competitive, out-performing IsolationForest in two of the three metrics used. While somewhat slower than IsolationForest, CountsOutlierDetector also performed well with respect to execution time. The main difference is CountsOutlierDetector is fully interpretable.
+
+**Compare Dimensionalities Notebook**
+The (compare dimensionalities)[] notebook examines how many outliers tend to be found in higher-dimensional spaces than lower-dimensional spaces. This establishes that, while examining higher dimensional spaces is often useful, on the whole, most outliers can be detected considering only up to two or three dimensions. In fact, the (hyperparameter tuning notebook)[]
+
+Old:
 [Example Counts Outlier Detector](https://github.com/Brett-Kennedy/CountsOutlierDetector/blob/main/examples/Examples_Counts_Outlier_Detector.ipynb) 
 
 This is a simple notebook providing some examples of use of the detector. It includes examples with synthetic and real data.
