@@ -314,7 +314,7 @@ The maximum number of plots which can be displayed. In some cases, rows may be f
 
 ### explain_features
 ``` python
-explain_features(self, features_arr)
+explain_features(features_arr)
 ```
 Display the counts for each combination of values within a specified set of columns. This would typically be
         called to follow up a call to explain_row(), where a set of 3 or more features were identified with at least
