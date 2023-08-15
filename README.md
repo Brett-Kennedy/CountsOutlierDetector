@@ -166,11 +166,11 @@ List of provided bin names. If set to None, a default set of names will be used.
 
 **max_dimension**s: int
 
-The maximum number of columns examined at any time. If set to, for example, 4, then the detector will check for 1d, 2d, 3d, and 4d outliers, but not outliers in higher dimensions.
+The maximum number of columns examined. If set to, for example, 4, then the detector will check for 1d, 2d, 3d, and 4d outliers, but not outliers in higher dimensions.
             
 **threshold**: float
         
-Used to determine which values or combinations of values are considered rare. Any set of values that has a count less than threshold * the expected count under a uniform distribution are flagged as outliers. For example, if considering a set of three columns, if the cardinalities are 4, 8, and 3, then there are 4*8*3=96 potential combinations. If there are 10,000 rows, we would expect (under a uniform distribution)
+Used to determine which values or combinations of values are considered rare. Any set of values that has a count less than threshold * the expected count under a uniform distribution are flagged as outliers. For example, if considering a set of three columns, if the cardinalities are 4, 8, and 3, then there are 4 * 8 * 3=96 potential combinations. If there are 10,000 rows, we would expect (under a uniform distribution)
             10000/96 = 104.16 rows in each combination. If threshold is set to 0.25, we flag any combinations that have
             less than 104.16 * 0.25 = 26 rows. When threshold is set to a very low value, only very unusual values and
             combinations of values will be flagged. When set to a higher value, many more will be flagged, and rows
