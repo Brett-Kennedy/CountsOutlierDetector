@@ -183,9 +183,9 @@ If set true, values will be flagged only if they are both rare and rare given th
             
 **max_num_combinations**: int
         
-This, as well as max_dimensions, determines the maximum number of dimensions that may be examined at a time.
+This, as well as max_dimensions, determines the maximum number of dimensions that may be examined.
             When determining if the detector considers, for example, 3d outliers, it examines the number of columns and
-            average number of unique values per column and estimates the total number of combinations. If this exceeds
+            number of unique values per column and estimates the total number of combinations. If this exceeds
             max_num_combinations, the detector will not consider spaces of this dimensionality or higher. This parameter
             may be set to reduce the time or memory required or to limit the flagged values to lower dimensions for
             greater interpretability. It may also be set higher to help identify more outliers where desired.
@@ -205,7 +205,7 @@ If specified, the output will be written to a .csv file in this folder. If unspe
             
 **results_name**: string
         
-Optional text to be included in the names of the output files, if created. The output file  names will also
+Optional string to be included in the names of the output files, if created. The output file  names will also
             include the date and time, to allow multiple to be created without over-writing previous output files.
             
 **run_parallel**: bool
@@ -228,7 +228,7 @@ This is the main API. This determines the outlier score of all rows in the data.
 **input_data**: pandas dataframe, or data structure that may be converted to a pandas dataframe, such as
             numpy array, 2d python array, or dictionary
 
-**Return**: dictionary
+**Returns**: dictionary
             
 Returns a dictionary with the following elements:
 
@@ -264,13 +264,11 @@ get_most_flagged_rows()
 
 This is used to get the rows from the original data with the highest total scores.
 
-Parameters: None
+**Returns**: pandas dataframe
 
-**returns**: pandas dataframe
-
-This returns a dataframe with the set of rows matching all rows from the original data that received any
+This returns a dataframe with the set of rows matching the rows from the original data that received any
             non-zero score, ordered from highest score to lowest. This has the full set of columns from the original
-            data as well as a SCORE column indicating the total score of the column
+            data as well as a 'SCORE' column indicating the total score of the column
 
 &nbsp;&nbsp;
 
@@ -280,10 +278,6 @@ plot_scores_distribution()
 ```
 
 This presents three plots. The first two are bar plots providing the count of each score, the second with scores of zero omitted. The third presents this as a rank plot. This allows determining if there are any distinctions between low and high-scoring flagged rows, such that beyond some score flagged rows may be particularly considered as outliers. 
-
-Parameters: None
-
-Return Values: None
 
 &nbsp;&nbsp;
 
@@ -323,8 +317,6 @@ Display the counts for each combination of values within a specified set of colu
 **features_arr**: list of strings
 
 A list of features within the dataset
-
-**Returns**: None
 
 &nbsp;&nbsp;
 
