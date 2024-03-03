@@ -18,6 +18,7 @@ from IPython.display import display, Markdown
 
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
 
 
 class CountsOutlierDetector:
@@ -38,7 +39,8 @@ class CountsOutlierDetector:
         :param n_bins: int
             The number of bins used to reduce numeric columns to a small set of ordinal values.
         :param bin_names: list of strings
-            todo: fill in
+            List of provided bin names. Suitable to specify where a small number of bins are used and the defaults are
+            not appropriate, for example, where non-English names should be used.
         :param max_dimensions: int
             The maximum number of columns examined at any time. If set to, for example, 4, then the detector will check
             for 1d, 2d, 3d, and 4d outliers, but not outliers in higher dimensions.
@@ -114,15 +116,15 @@ class CountsOutlierDetector:
             if n_bins == 2:
                 self.bin_names = ['Low', 'High']
             elif n_bins == 3:
-                self.bin_names = ['Low', 'Medium', 'High']
+                self.bin_names = ['Low', 'Med', 'High']
             elif n_bins == 4:
-                self.bin_names = ['Low', 'Medium-Low', 'Medium-High', 'High']
+                self.bin_names = ['Low', 'Med-Low', 'Med-High', 'High']
             elif n_bins == 5:
-                self.bin_names = ['Low', 'Medium-Low', 'Medium', 'Medium-High', 'High']
+                self.bin_names = ['Low', 'Med-Low', 'Med', 'Med-High', 'High']
             elif n_bins == 6:
-                self.bin_names = ['Very Low', 'Low', 'Medium-Low', 'Medium-High', 'High', 'Very High']
+                self.bin_names = ['Very Low', 'Low', 'Med-Low', 'Med-High', 'High', 'Very High']
             elif n_bins == 7:
-                self.bin_names = ['Very Low', 'Low', 'Medium-Low', 'Medium', 'Medium-High', 'High', 'Very High']
+                self.bin_names = ['Very Low', 'Low', 'Med-Low', 'Med', 'Med-High', 'High', 'Very High']
             else:
                 self.bin_names = ['Bin ' + str(x) for x in range(n_bins)]
 
@@ -197,12 +199,14 @@ class CountsOutlierDetector:
             Returns a dictionary with the following elements:
 
             'Scores: list
-                todo: fill in
+                An array with an element for each row in the dataset. This is the detector's estimate of the
+                outlierness of each row.
 
             'Breakdown All Rows': pandas dataframe
                 This contains a row for each row in the original data, along with columns indicating the number of times
                 each row was flagged based on 1d, 2d, 3d,... tests. A short explanation of each is also provided
-                giving the columns, values (or bin number), and the fraction of rows having this combination.
+                giving the columns, values (or bin number), and the fraction of rows having this combination. This is
+                not intended to be readable, as is useful only for further analysis of the outliers.
 
             'Breakdown Flagged Rows': pandas dataframe
                 This is a condensed form of the above dataframe, including only the rows flagged at least once, and
@@ -210,7 +214,7 @@ class CountsOutlierDetector:
 
             'Flagged Summary': pandas dataframe
                 This provides a high level view of the numbers of values, or combinations of values, flagged in 1d,
-                2d, 3d... spaces.
+                2d, 3d... spaces, as well as the number of dimensions checked.
         """
 
         def update_run_summary(arr):
@@ -415,16 +419,18 @@ class CountsOutlierDetector:
             This returns 2 parallel 6d arrays: fractions_3d and rare_3d_values, both with the dimensions:
             i column, j column, k column, value in i column, value in j column, value in the k column
 
-            It also returns: outliers_3d_arr, outliers_explanation_arr, and column_combos_checked.
+            It also returns: outliers_3d_arr and outliers_explanation_arr
 
-            todo: explain each of these
+            fractions_3d: the fractions of the total set of rows represented by each combination of values
+            rare_3d_values: boolean flag for each combination of values indicating if it was flagged
+            outliers_3d_arr: score for each row with respect to all 3d spaces.
+            outliers_explanation_arr: an explanation for each row that was flagged in 3d.
             """
 
             fractions_3d = [[]] * num_cols
             rare_3d_values = [[]] * num_cols
             outliers_3d_arr = [0] * num_rows
             outliers_explanation_arr = [[]] * num_rows
-            column_combos_checked = 0
 
             run_parallel_3d = self.run_parallel
             if num_combinations < 1_000_000:
@@ -450,11 +456,10 @@ class CountsOutlierDetector:
                                             self.threshold)
                         process_arr.append(f)
                     for f_idx, f in enumerate(process_arr):
-                        rare_arr_for_i, outliers_3d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i = f.result()
+                        rare_arr_for_i, outliers_3d_arr_for_i, outliers_explanation_arr_for_i = f.result()
                         rare_3d_values[f_idx] = rare_arr_for_i
                         outliers_3d_arr = [x + y for x, y in zip(outliers_3d_arr, outliers_3d_arr_for_i)]
-                        outliers_explanation_arr = [x + y for x, y in zip(outliers_explanation_arr, outliers_explanation_arr_for_i)]
-                        column_combos_checked += column_combos_checked_for_i
+                        outliers_explanation_arr = [x + y for x, y in zip(outliers_explanation_arr)]
             else:
                 dt_display_prev = datetime.now()
                 for i in range(num_cols):
@@ -466,7 +471,7 @@ class CountsOutlierDetector:
                             print(f"  {percent_complete:.2f}% complete")
                             dt_display_prev = dt_display
 
-                    rare_arr_for_i, outliers_3d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i = process_inner_loop_3d(
+                    rare_arr_for_i, outliers_3d_arr_for_i, outliers_explanation_arr_for_i = process_inner_loop_3d(
                         self,
                         i,
                         self.data_np,
@@ -481,13 +486,12 @@ class CountsOutlierDetector:
                     rare_3d_values[i] = rare_arr_for_i
                     outliers_3d_arr = [x + y for x, y in zip(outliers_3d_arr, outliers_3d_arr_for_i)]
                     outliers_explanation_arr = [x + y for x, y in zip(outliers_explanation_arr, outliers_explanation_arr_for_i)]
-                    column_combos_checked += column_combos_checked_for_i
 
             out = flatten(rare_3d_values)
             self.run_summary += f"\n\n3d: Number of common combinations (over all columns): {out.count(False):,}"
             self.run_summary += f"\n3d: Number of rare combinations: {out.count(True)}"
             update_run_summary(outliers_3d_arr)
-            return fractions_3d, rare_3d_values, outliers_3d_arr, outliers_explanation_arr, column_combos_checked
+            return fractions_3d, rare_3d_values, outliers_3d_arr, outliers_explanation_arr
 
         def get_4d_stats(num_combinations):
             """
@@ -495,7 +499,7 @@ class CountsOutlierDetector:
             i column, j column, k column, m column,
             value in i column, value in j column, value in the k column, value in the m column
 
-            It also returns: outliers_4d_arr, outliers_explanation_arr, and column_combos_checked.
+            It also returns: outliers_4d_arr and outliers_explanation_arr
 
             These are analogous to get_3d_stats()
             """
@@ -504,7 +508,6 @@ class CountsOutlierDetector:
             rare_4d_values = [[]] * num_cols
             outliers_4d_arr = [0] * num_rows
             outliers_explanation_arr = [[]] * num_rows
-            column_combos_checked = 0
 
             run_parallel_4d = self.run_parallel
             if num_combinations < 1_000_000:
@@ -530,11 +533,10 @@ class CountsOutlierDetector:
                                             rare_3d_values)
                         process_arr.append(f)
                     for f_idx, f in enumerate(process_arr):
-                        rare_arr_for_i, outliers_4d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i = f.result()
+                        rare_arr_for_i, outliers_4d_arr_for_i, outliers_explanation_arr_for_i = f.result()
                         rare_4d_values[f_idx] = rare_arr_for_i
                         outliers_4d_arr = [x + y for x, y in zip(outliers_4d_arr, outliers_4d_arr_for_i)]
                         outliers_explanation_arr = [x + y for x, y in zip(outliers_explanation_arr, outliers_explanation_arr_for_i)]
-                        column_combos_checked += column_combos_checked_for_i
             else:
                 dt_display_prev = datetime.now()
                 for i in range(num_cols):
@@ -546,7 +548,7 @@ class CountsOutlierDetector:
                             print(f"  {percent_complete:.2f}% complete")
                             dt_display_prev = dt_display
 
-                    rare_arr_for_i, outliers_4d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i = process_inner_loop_4d(
+                    rare_arr_for_i, outliers_4d_arr_for_i, outliers_explanation_arr_for_i = process_inner_loop_4d(
                         self,
                         i,
                         self.data_np,
@@ -562,13 +564,12 @@ class CountsOutlierDetector:
                     rare_4d_values[i] = rare_arr_for_i
                     outliers_4d_arr = [x + y for x, y in zip(outliers_4d_arr, outliers_4d_arr_for_i)]
                     outliers_explanation_arr = [x + y for x, y in zip(outliers_explanation_arr, outliers_explanation_arr_for_i)]
-                    column_combos_checked += column_combos_checked_for_i
 
             out = flatten(rare_4d_values)
             self.run_summary += f"\n\n4d: Number of common combinations (over all columns): {out.count(False):,}"
             self.run_summary += f"\n4d: Number of rare combinations: {out.count(True)}"
             update_run_summary(outliers_4d_arr)
-            return fractions_4d, rare_4d_values, outliers_4d_arr, outliers_explanation_arr, column_combos_checked
+            return fractions_4d, rare_4d_values, outliers_4d_arr, outliers_explanation_arr
 
         def get_5d_stats(num_combinations):
             """
@@ -576,17 +577,15 @@ class CountsOutlierDetector:
             i column, j column, k column, m column, n column
             value in i column, value in j column, value in the k column, value in the m column, values in the n column
 
-            It also returns: outliers_5d_arr,  outliers_explanation_arr, and column_combos_checked.
+            It also returns: outliers_5d_arr and outliers_explanation_arr
 
             These are analogous to get_3d_stats()
             """
 
-            # todo: update this comment. Make more general, so don't repeat it
             fractions_5d = [[]] * num_cols
             rare_5d_values = [[]] * num_cols
             outliers_5d_arr = [0] * num_rows
             outliers_explanation_arr = [[]] * num_rows
-            column_combos_checked = 0
 
             run_parallel_5d = self.run_parallel
             if num_combinations < 1_000_000:
@@ -614,11 +613,10 @@ class CountsOutlierDetector:
                                             self.threshold)
                         process_arr.append(f)
                     for f_idx, f in enumerate(process_arr):
-                        rare_arr_for_i, outliers_5d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i = f.result()
+                        rare_arr_for_i, outliers_5d_arr_for_i, outliers_explanation_arr_for_i = f.result()
                         rare_5d_values[f_idx] = rare_arr_for_i
                         outliers_5d_arr = [x + y for x, y in zip(outliers_5d_arr, outliers_5d_arr_for_i)]
                         outliers_explanation_arr = [x + y for x, y in zip(outliers_explanation_arr, outliers_explanation_arr_for_i)]
-                        column_combos_checked += column_combos_checked_for_i
             else:
                 dt_display_prev = datetime.now()
                 for i in range(num_cols):
@@ -630,7 +628,7 @@ class CountsOutlierDetector:
                             print(f"  {percent_complete:.2f}% complete")
                             dt_display_prev = dt_display
 
-                    rare_arr_for_i, outliers_5d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i = process_inner_loop_5d(
+                    rare_arr_for_i, outliers_5d_arr_for_i, outliers_explanation_arr_for_i = process_inner_loop_5d(
                         self,
                         i,
                         self.data_np,
@@ -648,20 +646,20 @@ class CountsOutlierDetector:
                     outliers_5d_arr = [x + y for x, y in zip(outliers_5d_arr, outliers_5d_arr_for_i)]
                     outliers_explanation_arr = [x + y for x, y in
                                                 zip(outliers_explanation_arr, outliers_explanation_arr_for_i)]
-                    column_combos_checked += column_combos_checked_for_i
             out = flatten(rare_5d_values)
             self.run_summary += f"\n\n5d: Number of common combinations (over all columns): {out.count(False):,}"
             self.run_summary += f"\n5d: Number of rare combinations: {out.count(True)}"
             update_run_summary(outliers_5d_arr)
-            return fractions_5d, rare_5d_values, outliers_5d_arr, outliers_explanation_arr, column_combos_checked
+            return fractions_5d, rare_5d_values, outliers_5d_arr, outliers_explanation_arr
 
         def get_6d_stats(num_combinations):
             """
             This returns 2 parallel 12d arrays: fractions_6d and rare_6d_values, both with the dimensions:
-            i column, j column, k column, m column, todo: more??
-            value in i column, value in j column, value in the k column, value in the m column # todo: more??
+            i column, j column, k column, m column, n column, p column
+            value in i column, value in j column, value in the k column, value in the m column, value in the n column,
+            value in the p column
 
-            It also returns outliers_6d_arr, outliers_explanation_arr, and column_combos_checked.
+            It also returns outliers_6d_arr and outliers_explanation_arr
 
             These are analogous to get_3d_stats()
             """
@@ -670,7 +668,6 @@ class CountsOutlierDetector:
             rare_6d_values = [[]] * num_cols
             outliers_6d_arr = [0] * num_rows
             outliers_explanation_arr = [[]] * num_rows
-            column_combos_checked = 0
 
             run_parallel_6d = self.run_parallel
             if num_combinations < 1_000_000:
@@ -699,11 +696,10 @@ class CountsOutlierDetector:
                                             self.threshold)
                         process_arr.append(f)
                     for f_idx, f in enumerate(process_arr):
-                        rare_arr_for_i, outliers_6d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i = f.result()
+                        rare_arr_for_i, outliers_6d_arr_for_i, outliers_explanation_arr_for_i= f.result()
                         rare_6d_values[f_idx] = rare_arr_for_i
                         outliers_6d_arr = [x + y for x, y in zip(outliers_6d_arr, outliers_6d_arr_for_i)]
                         outliers_explanation_arr = [x + y for x, y in zip(outliers_explanation_arr, outliers_explanation_arr_for_i)]
-                        column_combos_checked += column_combos_checked_for_i
             else:
                 dt_display_prev = datetime.now()
                 for i in range(num_cols):
@@ -715,7 +711,7 @@ class CountsOutlierDetector:
                             print(f"  {percent_complete:.2f}% complete")
                             dt_display_prev = dt_display
 
-                    rare_arr_for_i, outliers_6d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i = process_inner_loop_6d(
+                    rare_arr_for_i, outliers_6d_arr_for_i, outliers_explanation_arr_for_i = process_inner_loop_6d(
                         self,
                         i,
                         self.data_np,
@@ -733,13 +729,12 @@ class CountsOutlierDetector:
                     rare_6d_values[i] = rare_arr_for_i
                     outliers_6d_arr = [x + y for x, y in zip(outliers_6d_arr, outliers_6d_arr_for_i)]
                     outliers_explanation_arr = [x + y for x, y in zip(outliers_explanation_arr, outliers_explanation_arr_for_i)]
-                    column_combos_checked += column_combos_checked_for_i
 
             out = flatten(rare_6d_values)
             self.run_summary += f"\n\n6d: Number of common combinations (over all columns): {out.count(False):,}"
             self.run_summary += f"\n6d: Number of rare combinations: {out.count(True)}"
             update_run_summary(outliers_6d_arr)
-            return fractions_6d, rare_6d_values, outliers_6d_arr, outliers_explanation_arr, column_combos_checked
+            return fractions_6d, rare_6d_values, outliers_6d_arr, outliers_explanation_arr
 
         def create_output_csv(outliers_1d_arr,
                               outliers_2d_arr,
@@ -754,7 +749,6 @@ class CountsOutlierDetector:
                               explanations_5d_arr,
                               explanations_6d_arr):
 
-            # todo: de-encode from the ordinal values in the explanations
             df = pd.DataFrame({"1d Counts": outliers_1d_arr,
                                "2d Counts": outliers_2d_arr,
                                "3d Counts": outliers_3d_arr,
@@ -788,7 +782,6 @@ class CountsOutlierDetector:
                 os.makedirs(self.results_folder, exist_ok=True)
                 n = datetime.now()
                 dt_string = n.strftime("%d_%m_%Y_%H_%M_%S")
-                #file_name = self.results_folder + "\\" + self.results_name + "_results_" + dt_string + ".csv"
                 file_name = os.path.join(self.results_folder, f"{self.results_name}_results_{dt_string}.csv")
                 df.to_csv(file_name)
 
@@ -934,8 +927,7 @@ class CountsOutlierDetector:
                     f"\n\nCannot determine 3d outliers given the number of columns ({num_cols}) and number of unique "
                     f"values in each. Estimated number of combinations: {round(num_combinations):,}")
             else:
-                fractions_3d, rare_3d_values, outliers_3d_arr, explanations_3d_arr, column_combos_checked_3d = \
-                    get_3d_stats(num_combinations=num_combinations)
+                fractions_3d, rare_3d_values, outliers_3d_arr, explanations_3d_arr = get_3d_stats(num_combinations=num_combinations)
                 checked_3d = True
                 self.dimensions_examined = 3
 
@@ -952,8 +944,7 @@ class CountsOutlierDetector:
                     (f"\n\nCannot determine 4d outliers given the number of columns ({num_cols}) and number of unique "
                      f"values in each. Estimated number of combinations: {round(num_combinations):,}")
             else:
-                fractions_4d, rare_4d_values, outliers_4d_arr, explanations_4d_arr, column_combos_checked_4d = \
-                    get_4d_stats(num_combinations=num_combinations)
+                fractions_4d, rare_4d_values, outliers_4d_arr, explanations_4d_arr = get_4d_stats(num_combinations=num_combinations)
                 checked_4d = True
                 self.dimensions_examined = 4
 
@@ -964,14 +955,13 @@ class CountsOutlierDetector:
         if self.max_dimensions >= 5:
             num_combinations = self.__get_num_combinations(dim=5)
             if num_cols < 5:
-                self.run_summary += f"\n\nCannot determine 5d outliers. Too few columns: {num_cols}."  # todo: these are printing before the output for 1d, 2d, 3d
+                self.run_summary += f"\n\nCannot determine 5d outliers. Too few columns: {num_cols}."
             elif num_combinations > self.max_num_combinations:
                 self.run_summary += (
                     f"\n\nCannot determine 5d outliers given the number of columns ({num_cols}) and number of unique "
                     f"values in each. Estimated number of combinations: {round(num_combinations):,}")
             else:
-                fractions_5d, rare_5d_values, outliers_5d_arr, explanations_5d_arr, column_combos_checked_5d = \
-                    get_5d_stats(num_combinations=num_combinations)
+                fractions_5d, rare_5d_values, outliers_5d_arr, explanations_5d_arr = get_5d_stats(num_combinations=num_combinations)
                 checked_5d = True
                 self.dimensions_examined = 5
 
@@ -982,14 +972,13 @@ class CountsOutlierDetector:
         if self.max_dimensions >= 6:
             num_combinations = self.__get_num_combinations(dim=6)
             if num_cols < 6:
-                self.run_summary += f"\n\nCannot determine 6d outliers. Too few columns: {num_cols}."  # todo: these are printing before the output for 1d, 2d, 3d
+                self.run_summary += f"\n\nCannot determine 6d outliers. Too few columns: {num_cols}."
             elif num_combinations > self.max_num_combinations:
                 self.run_summary += (
                     f"\n\nCannot determine 6d outliers given the number of columns ({num_cols}) and number of unique "
                     f"values in each. Estimated number of combinations: {round(num_combinations):,}")
             else:
-                fractions_6d, rare_6d_values, outliers_6d_arr, explanations_6d_arr, column_combos_checked_6d = \
-                    get_6d_stats(num_combinations=num_combinations)
+                fractions_6d, rare_6d_values, outliers_6d_arr, explanations_6d_arr = get_6d_stats(num_combinations=num_combinations)
                 checked_6d = True
                 self.dimensions_examined = 6
 
@@ -1108,16 +1097,14 @@ class CountsOutlierDetector:
             value = explanation[1][0]
             col_idx = self.data_df.columns.tolist().index(column_name)
 
-            title = f"Unusual value in column: {column_name}"
+            title = f"Unusual value in column: {column_name} ({self.orig_df.loc[row_index, column_name]})"
             if is_notebook():
                 display(Markdown(f'### {title}'))
             else:
                 print(title)
 
-            if self.col_types_arr[col_idx] == 'C':
-                pass  # todo: fill in!
-            else:
-                fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(11, 4))
+            if self.col_types_arr[col_idx] == 'N':
+                fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(14, 4))
 
                 s = sns.distplot(x=self.orig_df[column_name], ax=ax[0])
                 s.set_title(f"Distribution of actual values in {column_name}")
@@ -1144,10 +1131,11 @@ class CountsOutlierDetector:
                 counts_arr = [len(self.data_df[self.data_df[column_name] == x]) for x in self.unique_vals[col_idx]]
                 counts_arr = [max(x, max(counts_arr)/100.0) for x in counts_arr]
                 cols = ['blue'] * len(counts_arr)
-                i = self.unique_vals[col_idx].index(int(value.replace('Bin ', '')))
+                unique_bin_names = [self.bin_names[x] for x in self.unique_vals[col_idx]]
+                i = unique_bin_names.index(value)
                 cols[i] = 'red'
                 s = sns.barplot(
-                    x=pd.Series(self.unique_vals[col_idx]),
+                    x=unique_bin_names,
                     y=pd.Series(counts_arr),
                     palette=cols,
                 )
@@ -1311,7 +1299,7 @@ class CountsOutlierDetector:
                         row_arr.append(len(self.data_df[(self.data_df[column_name_1] == v1) &
                                                         (self.data_df[column_name_2] == v2)]))
                     counts_arr.append(row_arr)
-                counts_df = pd.DataFrame(counts_arr, columns=unique_vals_1, index=unique_vals_2)
+                counts_df = pd.DataFrame(counts_arr, columns=self.bin_names, index=self.bin_names[::-1])
 
                 orig_cmap = matplotlib.cm.RdBu
                 if self.shifted_cmap is None:
@@ -1362,10 +1350,15 @@ class CountsOutlierDetector:
 
         def print_outlier_multi_d(explanation):
             cols = explanation[0]
+            values = explanation[1]
 
             title = "Unusual values in "
             for idx in range(len(cols)):
-                title += f"column {cols[idx]} ({self.orig_df.loc[row_index, cols[idx]]}), "
+                bin_label = ""
+                col_idx = self.data_df.columns.tolist().index(cols[idx])
+                if self.col_types_arr[col_idx] == 'N':
+                    bin_label = f": {values[idx]}"
+                title += f"column {cols[idx]} ({self.orig_df.loc[row_index, cols[idx]]}{bin_label}), "
             title = title[:-2]
             if is_notebook():
                 display(Markdown(f'### {title}'))
@@ -1379,9 +1372,20 @@ class CountsOutlierDetector:
                 vals_arr.append(self.unique_vals[col_idx])
             combinations_arr = list(itertools.product(*vals_arr))
 
+            # Get the names of the combinations
+            val_names_arr = []
+            for combo in combinations_arr:
+                combo_names = ""
+                for idx, col_name in enumerate(cols):
+                    col_idx = self.data_df.columns.tolist().index(col_name)
+                    combo_names += str(self._get_col_value(col_idx, combo[idx])) + " -- "
+                combo_names = combo_names[:-4]
+                val_names_arr.append(combo_names)
+
             # Get the counts of each combination
+            tick_labels = []
             counts_arr = []
-            for combination in combinations_arr:
+            for combination_idx, combination in enumerate(combinations_arr):
                 cond = [True] * len(self.data_df)
                 for idx in range(len(cols)):
                     col_name = cols[idx]
@@ -1389,6 +1393,7 @@ class CountsOutlierDetector:
                     cond = cond & (self.data_np[:, col_idx] == combination[idx])
                 rows_all = np.where(cond)[0]
                 if len(rows_all):
+                    tick_labels.append(val_names_arr[combination_idx])
                     counts_arr.append(len(rows_all))
 
             # Get the count of the current values
@@ -1399,7 +1404,7 @@ class CountsOutlierDetector:
                 cond = cond & (self.data_np[:, col_idx] == self.data_df.loc[row_index, col_name])
             curr_count = len(np.where(cond)[0])
 
-            counts_arr.sort(reverse=True)
+            counts_arr, tick_labels = list(zip(*sorted(zip(counts_arr, tick_labels), reverse=True)))
 
             # Ensure each count is tall enough to be seen
             min_val = counts_arr[0] / 100.0
@@ -1409,11 +1414,13 @@ class CountsOutlierDetector:
             if len(counts_arr) < 100:
                 bar_colors = ['steelblue'] * len(counts_arr)
                 bar_colors[counts_arr.index(curr_count + min_val)] = 'red'
-                s = sns.barplot(x=list(range(len(counts_arr))), y=counts_arr, palette=bar_colors)
+                s = sns.barplot(orient='h', y=list(range(len(counts_arr))), x=counts_arr, palette=bar_colors)
             else:
                 s = sns.histplot(counts_arr, color='blue')
             s.set_title(f"Counts by combination of values for \n{cols[0]}, \n{cols[1]}, \n{cols[2]}")
             s.set_xticks([])
+            plt.yticks(range(len(tick_labels)), tick_labels)
+
             plt.show()
 
         if self.flagged_rows_df is None:
@@ -1563,17 +1570,6 @@ class CountsOutlierDetector:
             if num_unique <= (2 * self.n_bins):
                 col_types_arr[col_idx] = 'C'
 
-        # # If there are a large number of categorical columns, re-determine the types with a more strict cutoff
-        # if col_types_arr.count('C') > 50:
-        #     col_types_arr = ['N'] * len(self.data_df.columns)
-        #     for col_idx, col_name in enumerate(self.data_df.columns):
-        #         num_unique = self.data_df[col_name].nunique()
-        #         is_numeric = self.__get_is_numeric(col_name)
-        #         if not is_numeric:
-        #             col_types_arr[col_idx] = 'C'
-        #         if num_unique <= min(5, self.n_bins):
-        #             col_types_arr[col_idx] = 'C'
-
         # Ensure any numeric columns are stored in integer or float format
         for col_idx, col_name in enumerate(self.data_df.columns):
             if col_types_arr[col_idx] == 'N':
@@ -1629,8 +1625,8 @@ class CountsOutlierDetector:
 
 
 #####################################################################################################################
-# Methods to examine specific subspaces. These methods are outside the class in order to be callable as concurrent
-# processes
+# Methods to examine specific subspaces. These methods are outside the class to simplify calling as concurrent
+# processes.
 
 def process_inner_loop_3d(
         obj,
@@ -1645,24 +1641,42 @@ def process_inner_loop_3d(
         divisor):
 
     """
-    todo: fill in
+    Execute the check for 3d outliers using each pair of columns greater than i, matched with i. For each set of
+    columns, each set of unique values is examined. For numeric features, each set of bins is used.
+
     :param obj:
-    :param i:
-    :param data_np:
-    :param num_cols:
-    :param num_rows:
-    :param unique_vals:
-    :param fractions_1d:
-    :param rare_1d_values:
-    :param rare_2d_values:
-    :param divisor:
+        the CountsOutlierDetector object
+    :param i: int
+        The loop index of the outermost loop. Where the code is executed in parallel, each outermost loop iteration
+        represents one process
+    :param data_np: 2d numpy array
+        The encoded data in numpy format
+    :param num_cols: int
+        The number of columns in the encoded data. This may be less than those in the original data.
+    :param num_rows: int
+        The number of rows in the data
+    :param unique_vals: list
+        A list of unique encoded values per feature
+    :param fractions_1d: list
+        The fraction of the number of rows respresented by each unique value in each feature. U
+    :param rare_1d_values: list
+        Values already identified as rare in a 1d sense. Used to prevent duplicate reporting in higher dimensions.
+    :param rare_2d_values: list
+        Values already identified as rare in a 2d sense. Used to prevent duplicate reporting in higher dimensions.
+    :param divisor: float
+        The threshold used to determine if the count for a given combination of values is low enough to be flagged.
+
     :return:
+        rare_arr_for_i: multidimensional array of booleans, indicating if each combination of values has been flagged
+        outliers_3d_arr_for_i, array of integers, indicating how many times each row has been flagged for sets of 3
+            features
+        outliers_explanation_arr_for_i: multidimensional array of arrays, describing each anomaly found in terms of
+            the set of features, and the specific encoded value in each.
     """
 
     num_unique_vals_i = len(unique_vals[i])
     outliers_3d_arr_for_i = [0] * num_rows
     outliers_explanation_arr_for_i = [[]] * num_rows
-    column_combos_checked_for_i = 0
 
     rare_arr_for_i = [[[] for _ in range(num_cols)] for _ in range(num_cols)]
 
@@ -1675,7 +1689,6 @@ def process_inner_loop_3d(
             expected_count_under_uniform = num_rows * expected_under_uniform
             if expected_count_under_uniform < 10:
                 continue
-            column_combos_checked_for_i += 1
 
             local_rare_arr = [[[False
                                 for _ in range(num_unique_vals_k)]
@@ -1718,12 +1731,11 @@ def process_inner_loop_3d(
                                           (current_fraction < expected_given_marginal) and \
                                           (current_fraction < 0.01)
                         if rare_value_flag:
-                            row_nums = three_d_row_nums  # todo: can remove some variables here
+                            row_nums = three_d_row_nums
                             assert len(row_nums) == round(current_fraction * num_rows), \
                                 (f"len of matching rows: {len(row_nums)}, fraction*num_rows: current_fraction*num_rows: " 
                                  f"{current_fraction * num_rows}")
                             for r in row_nums:
-                                # todo: i doubt this is threadsafe
                                 outliers_3d_arr_for_i[r] += 1
                                 expl = [[obj.data_df.columns[i], obj.data_df.columns[j], obj.data_df.columns[k]],
                                         [obj._get_col_value(i, i_vals_idx),
@@ -1735,7 +1747,7 @@ def process_inner_loop_3d(
                                     outliers_explanation_arr_for_i[r].append(expl)
                         local_rare_arr[i_vals_idx][j_vals_idx][k_vals_idx] = rare_value_flag
             rare_arr_for_i[j][k] = local_rare_arr
-    return rare_arr_for_i, outliers_3d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i
+    return rare_arr_for_i, outliers_3d_arr_for_i, outliers_explanation_arr_for_i
 
 
 def process_inner_loop_4d(
@@ -1755,7 +1767,6 @@ def process_inner_loop_4d(
     outliers_4d_arr_for_i = [0] * num_rows
     outliers_explanation_arr_for_i = [[]] * num_rows
     rare_arr_for_i = [[[[] for _ in range(num_cols)] for _ in range(num_cols)] for _ in range(num_cols)]
-    column_combos_checked_for_i = 0
 
     for j in range(i+1, num_cols-2):
         num_unique_vals_j = len(unique_vals[j])
@@ -1768,7 +1779,6 @@ def process_inner_loop_4d(
                 expected_count_under_uniform = num_rows * expected_under_uniform
                 if expected_count_under_uniform < 10:
                     continue
-                column_combos_checked_for_i += 1
 
                 local_rare_arr = [[[[False
                                      for _ in range(num_unique_vals_m)]
@@ -1817,7 +1827,7 @@ def process_inner_loop_4d(
                                 cond4 = (data_np[:, m] == m_val)
                                 rows_all = np.where(cond1 & cond2 & cond3 & cond4)
                                 current_fraction = len(rows_all[0]) / num_rows
-                                four_d_row_nums = rows_all[0]  # todo: use less variables
+                                four_d_row_nums = rows_all[0]
 
                                 if obj.check_marginal_probs:
                                     expected_given_marginal = \
@@ -1832,12 +1842,11 @@ def process_inner_loop_4d(
                                                   (current_fraction < expected_given_marginal) and \
                                                   (current_fraction < 0.01)
                                 if rare_value_flag:
-                                    row_nums = four_d_row_nums  # todo: can remove some variables here
+                                    row_nums = four_d_row_nums
                                     assert len(row_nums) == round(current_fraction * num_rows), \
                                         f"len of matching rows: {len(row_nums)}, " \
                                         f"fraction*num_rows: current_fraction*num_rows: {current_fraction * num_rows}"
                                     for r in row_nums:
-                                        # todo: i doubt this is threadsafe
                                         outliers_4d_arr_for_i[r] += 1
                                         expl = [[obj.data_df.columns[i],
                                                  obj.data_df.columns[j],
@@ -1854,7 +1863,7 @@ def process_inner_loop_4d(
                                             outliers_explanation_arr_for_i[r].append(expl)
                                 local_rare_arr[i_vals_idx][j_vals_idx][k_vals_idx][m_vals_idx] = rare_value_flag
                 rare_arr_for_i[j][k][m] = local_rare_arr.copy()
-    return rare_arr_for_i, outliers_4d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i
+    return rare_arr_for_i, outliers_4d_arr_for_i, outliers_explanation_arr_for_i
 
 
 def process_inner_loop_5d(
@@ -1879,7 +1888,6 @@ def process_inner_loop_5d(
                         for _ in range(num_cols)]
                        for _ in range(num_cols)]
                       for _ in range(num_cols)]
-    column_combos_checked_for_i = 0
 
     for j in range(i+1, num_cols-3):
         num_unique_vals_j = len(unique_vals[j])
@@ -1894,7 +1902,6 @@ def process_inner_loop_5d(
                     expected_count_under_uniform = num_rows * expected_under_uniform
                     if expected_count_under_uniform < 10:
                         continue
-                    column_combos_checked_for_i += 1
 
                     # local_rare_arr represents the current set of columns. It's a 5d array, with a dimension
                     # for each value.
@@ -1982,7 +1989,7 @@ def process_inner_loop_5d(
 
                                         rows_all = np.where(cond1 & cond2 & cond3 & cond4 & cond5)
                                         current_fraction = len(rows_all[0]) / num_rows
-                                        five_d_row_nums = rows_all[0]  # todo: use less variables
+                                        five_d_row_nums = rows_all[0]
 
                                         if obj.check_marginal_probs:
                                             expected_given_marginal = \
@@ -1998,12 +2005,11 @@ def process_inner_loop_5d(
                                                           (current_fraction < expected_given_marginal) and \
                                                           (current_fraction < 0.01)
                                         if rare_value_flag:
-                                            row_nums = five_d_row_nums  # todo: can remove some variables here
+                                            row_nums = five_d_row_nums
                                             assert len(row_nums) == round(current_fraction * num_rows), \
                                                 (f"len of matching rows: {len(row_nums)}, fraction*num_rows: " 
                                                  f"current_fraction*num_rows: {current_fraction * num_rows}")
                                             for r in row_nums:
-                                                # todo: i doubt this is threadsafe
                                                 outliers_5d_arr_for_i[r] += 1
                                                 expl = [[obj.data_df.columns[i],
                                                          obj.data_df.columns[j],
@@ -2023,7 +2029,7 @@ def process_inner_loop_5d(
 
                                         local_rare_arr[i_vals_idx][j_vals_idx][k_vals_idx][m_vals_idx][n_vals_idx] = rare_value_flag
                     rare_arr_for_i[j][k][m][n] = local_rare_arr
-    return rare_arr_for_i, outliers_5d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i
+    return rare_arr_for_i, outliers_5d_arr_for_i, outliers_explanation_arr_for_i
 
 
 def process_inner_loop_6d(
@@ -2050,7 +2056,6 @@ def process_inner_loop_6d(
                         for _ in range(num_cols)]
                        for _ in range(num_cols)]
                       for _ in range(num_cols)]
-    column_combos_checked_for_i = 0
 
     for j in range(i+1, num_cols-4):
         num_unique_vals_j = len(unique_vals[j])
@@ -2069,7 +2074,6 @@ def process_inner_loop_6d(
                         expected_count_under_uniform = num_rows * expected_under_uniform
                         if expected_count_under_uniform < 10:
                             continue
-                        column_combos_checked_for_i += 1
 
                         # local_rare_arr represents the current set of columns. It's a 5d array, with a dimension
                         # for each value.
@@ -2208,7 +2212,7 @@ def process_inner_loop_6d(
 
                                                 rows_all = np.where(cond1 & cond2 & cond3 & cond4 & cond5 & cond6)
                                                 current_fraction = len(rows_all[0]) / num_rows
-                                                six_d_row_nums = rows_all[0]  # todo: use less variables
+                                                six_d_row_nums = rows_all[0]
 
                                                 if obj.check_marginal_probs:
                                                     expected_given_marginal = fractions_1d[i][i_vals_idx] * \
@@ -2224,11 +2228,11 @@ def process_inner_loop_6d(
                                                                   (current_fraction < expected_given_marginal) and \
                                                                   (current_fraction < 0.01)
                                                 if rare_value_flag:
-                                                    row_nums = six_d_row_nums  # todo: can remove some variables here
+                                                    row_nums = six_d_row_nums
                                                     assert len(row_nums) == round(current_fraction * num_rows), \
-                                                        f"len of matching rows: {len(row_nums)}, fraction*num_rows: current_fraction*num_rows: {current_fraction * num_rows}"
+                                                        (f"len of matching rows: {len(row_nums)}, fraction*num_rows: " 
+                                                         f"current_fraction*num_rows: {current_fraction * num_rows}")
                                                     for r in row_nums:
-                                                        # todo: i doubt this is threadsafe
                                                         outliers_6d_arr_for_i[r] += 1
                                                         expl = [[obj.data_df.columns[i],
                                                                  obj.data_df.columns[j],
@@ -2250,7 +2254,7 @@ def process_inner_loop_6d(
 
                                                 local_rare_arr[i_vals_idx][j_vals_idx][k_vals_idx][m_vals_idx][n_vals_idx][p_vals_idx] = rare_value_flag
                         rare_arr_for_i[j][k][m][n][p] = local_rare_arr
-    return rare_arr_for_i, outliers_6d_arr_for_i, outliers_explanation_arr_for_i, column_combos_checked_for_i
+    return rare_arr_for_i, outliers_6d_arr_for_i, outliers_explanation_arr_for_i
 
 
 ###################################################################################################################
@@ -2265,7 +2269,6 @@ def flatten(arr):
             return arr
         if not any(1 for x in arr if type(x) is list):
             return arr
-        #arr = [x[0] if (type(x) is list) and (len(x) == 1) else x for x in arr]
         arr = tuple(i for row in arr for i in row)
 
 
@@ -2283,6 +2286,14 @@ def is_float(v):
 
 
 def skip_x_ticks(s):
+    """
+    Clean the ticks on the x-axis of a seaborn plot by hiding sufficient members to ensure only a readable number
+    remain, evenly spaced.
+
+    :param s: seaborn object
+    :return: None
+    """
+
     max_ticks = 15
     num_ticks = len(s.xaxis.get_ticklabels())
     if num_ticks < max_ticks:
@@ -2301,7 +2312,7 @@ def is_notebook() -> bool:
         elif shell == 'TerminalInteractiveShell':
             return False  # Terminal running IPython
         else:
-            return False  # Other type (?)
+            return False  # Other type
     except NameError:
         return False      # Probably standard Python interpreter
 
@@ -2329,6 +2340,7 @@ def shiftedColorMap(cmap, start=0, midpoint=0.5, stop=1.0, name='shiftedcmap'):
           Defaults to 1.0 (no upper offset). Should be between
           `midpoint` and 1.0.
     """
+
     cdict = {
         'red': [],
         'green': [],
