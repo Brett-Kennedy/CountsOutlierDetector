@@ -1104,6 +1104,7 @@ class CountsOutlierDetector:
                 print(title)
 
             if self.col_types_arr[col_idx] == 'N':
+                col_idx = self.numeric_col_names.index(column_name)
                 fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(14, 4))
 
                 s = sns.distplot(x=self.orig_df[column_name], ax=ax[0])
@@ -1112,14 +1113,14 @@ class CountsOutlierDetector:
                 # Add a green vertical line for the bin boundaries
                 for i in range(self.n_bins):
                     bin_edge = self.bin_edges[col_idx][i]
-                    s.axvline(bin_edge, color='green', linewidth=0.5)
+                    s.axvline(bin_edge, color='green', linewidth=1.5)
 
                 for col_val_idx, col_val in enumerate(self.unique_vals[col_idx]):
                     if self.rare_1d_values[col_idx][col_val_idx]:
                         rows_matching = np.where(self.data_np[:, col_idx] == col_val)[0]
                         for r in rows_matching:
                             orig_value = self.orig_df.loc[r, column_name]
-                            s.axvline(orig_value, color='brown', linewidth=0.5)
+                            s.axvline(orig_value, color='brown', linewidth=0.5, alpha=0.1)
 
                 # Add a thick red line for the current row
                 orig_value = self.orig_df.loc[row_index, column_name]
@@ -1241,14 +1242,22 @@ class CountsOutlierDetector:
                 numeric_col_idx_2 = self.numeric_col_names.index(column_name_2)
                 s.set_xlim(self.bin_edges[numeric_col_idx_1][0], self.bin_edges[numeric_col_idx_1][-1])
                 s.set_ylim(self.bin_edges[numeric_col_idx_2][0], self.bin_edges[numeric_col_idx_2][-1])
-                xlim = s.get_xlim()
-                ylim = s.get_ylim()
+
+                xlim = list(s.get_xlim())
+                margin = (xlim[1] - xlim[0]) * 0.03
+                xlim[0] = xlim[0] - margin
+                xlim[1] = xlim[1] + margin
+
+                ylim = list(s.get_ylim())
+                margin = (ylim[1] - ylim[0]) * 0.04
+                ylim[0] = ylim[0] - margin
+                ylim[1] = ylim[1] + margin
 
                 # Add green grid lines for the bin boundaries
-                for i in range(self.n_bins):
+                for i in range(self.n_bins+1):
                     bin_edge = self.bin_edges[numeric_col_idx_1][i]
                     s.axvline(bin_edge, color='green', linewidth=0.5)
-                for i in range(self.n_bins):
+                for i in range(self.n_bins+1):
                     bin_edge = self.bin_edges[numeric_col_idx_2][i]
                     s.axhline(bin_edge, color='green', linewidth=0.5)
 
