@@ -1006,7 +1006,7 @@ class CountsOutlierDetector:
                 f" ({round(num_rows_scored*100.0/num_rows, 3)}%)")
 
         # Fill in flagged_rows_df
-        run_summary_df = run_summary_df.append(pd.DataFrame(np.array([[
+        new_df = pd.DataFrame(np.array([[
             checked_2d,
             checked_3d,
             checked_4d,
@@ -1028,8 +1028,8 @@ class CountsOutlierDetector:
             self.flagged_rows_df['Any up to 6d'].sum() * 100.0 / num_rows,
 
             self.flagged_rows_df['Any Scored'].sum() * 100.0 / num_rows
-            ]]),
-            columns=run_summary_df.columns))
+        ]]), columns=run_summary_df.columns)
+        run_summary_df = pd.concat([run_summary_df, new_df])
 
         # Set the correct column types
         run_summary_df['Checked_2d'] = run_summary_df['Checked_2d'].astype(bool)
