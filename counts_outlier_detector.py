@@ -188,7 +188,7 @@ class CountsOutlierDetector:
             pd.options.display.width = 10000
 
     # Using numba appears to give similar performance results. The current implementation is without numba.
-    def predict(self, input_data):
+    def fit_predict(self, input_data):
         """
         Determine the outlier score of all rows in the data
 
@@ -1318,6 +1318,7 @@ class CountsOutlierDetector:
                     annot=True,
                     fmt="d",
                     cmap=self.shifted_cmap,
+                    #cmap=shiftedColorMap(matplotlib.cm.gray, midpoint=0.05, name='shifted'), # Black & white version
                     mask=(counts_df == 0),
                     linecolor='green',
                     linewidth=.5,
@@ -1356,10 +1357,12 @@ class CountsOutlierDetector:
 
                 plt.tight_layout()
                 plt.show()
+                fig.savefig('Ch15_F03bw_Kennedy3.png', facecolor='white', format='png', dpi=1200)
 
         def print_outlier_multi_d(explanation):
             cols = explanation[0]
             values = explanation[1]
+            fig, ax = plt.subplots()
 
             title = "Unusual values in "
             for idx in range(len(cols)):
@@ -1429,7 +1432,6 @@ class CountsOutlierDetector:
             s.set_title(f"Counts by combination of values for \n{cols[0]}, \n{cols[1]}, \n{cols[2]}")
             s.set_xticks([])
             plt.yticks(range(len(tick_labels)), tick_labels)
-
             plt.show()
 
         if self.flagged_rows_df is None:
