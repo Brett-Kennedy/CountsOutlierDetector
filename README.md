@@ -13,6 +13,8 @@ In cases where the outlierness of an instance is obvious on inspection, this may
 
 CountsOutlierDetector is based on the intuition that all outliers are essentially data instances with either unusual single values, or unusual combinations of values. CountsOutlierDetector works by first examing each column indivually and identifying all values that are unusual with respect to their columns. These are then known as *1d outliers*, that is: outliers based on considering a single dimension at a time. It then examines each pair of columns, identifying the rows with pairs of unusual values within each pair of columns. For example, having fur may be common, as well as laying eggs, but the combination is rare. Or, with numeric columns, an age of 1 yr may be common and a height of 6' as well, but the combination rare, most likely flagging an error. These are known as *2d outliers*. The detector then considers sets of 3 columns, sets of 4 columns, and so on. 
 
+For a full description, see the article on Medium: https://medium.com/towards-data-science/counts-outlier-detector-interpretable-outlier-detection-ead0d469557a
+
 ## Algorithm
 At each stage, the algorithm looks for instances that are unusual specifically considering the current dimensionality (looping from 1, 2, 3, and up), excluding values or combinations already flagged in lower-dimensional spaces. This helps keep the explanations interpretable, but also avoids double counting. For example, in a table with columns: A,B,C,D,E, there may be a rare value in column A, say the 15th unique value in A, A<sub>15</sub>. Any rows containing value A<sub>15</sub> in Column A will then be flagged as a 1d outlier. 
 
